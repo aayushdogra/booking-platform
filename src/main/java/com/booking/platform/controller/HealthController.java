@@ -12,15 +12,4 @@ public class HealthController {
     public String health() {
         return "Booking Platform is running";
     }
-
-    @GetMapping("/hello/{name}")
-    public String hello(@PathVariable String name) {
-        return "Hello " + name;
-    }
-
-    @GetMapping("/search")
-    public String search(@RequestParam String city, @RequestParam int guests) {
-        return "Searching hotels in " + city + " for " + guests + " guests";
-    }
-
 }
