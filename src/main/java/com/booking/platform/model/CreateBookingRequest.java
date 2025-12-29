@@ -1,0 +1,43 @@
+package com.booking.platform.model;
+
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+public class CreateBookingRequest {
+
+    @NotBlank(message = "User name is required")
+    private String userName;
+
+    @NotBlank(message = "Hotel name is required")
+    private String hotelName;
+
+    @NotNull(message = "Number of nights is required")
+    @Min(value = 1, message = "Nights must be at least 1")
+    private Integer nights;
+
+    // getters & setters
+    public String getUserName() {
+        return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+
+    public String getHotelName() {
+        return hotelName;
+    }
+
+    public void setHotelName(String hotelName) {
+        this.hotelName = hotelName;
+    }
+
+    public int getNights() {
+        return nights;
+    }
+
+    public void setNights(int nights) {
+        this.nights = nights;
+    }
+}
