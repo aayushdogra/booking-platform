@@ -1,5 +1,6 @@
 package com.booking.platform.model;
 
+import com.booking.platform.domain.RoomType;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,6 +12,9 @@ public class CreateBookingRequest {
 
     @NotBlank(message = "Hotel name is required")
     private String hotelName;
+
+    @NotNull(message = "Room type is required")
+    private RoomType roomType;
 
     @NotNull(message = "Number of nights is required")
     @Min(value = 1, message = "Nights must be at least 1")
@@ -31,6 +35,14 @@ public class CreateBookingRequest {
 
     public void setHotelName(String hotelName) {
         this.hotelName = hotelName;
+    }
+
+    public RoomType getRoomType() {
+        return roomType;
+    }
+
+    public void setRoomType(RoomType roomType) {
+        this.roomType = roomType;
     }
 
     public int getNights() {
