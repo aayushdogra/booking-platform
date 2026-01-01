@@ -27,12 +27,16 @@ public class BookingServiceImpl implements BookingService{
                 request.getHotelName(),
                 request.getRoomType(),
                 request.getNights(),
-                BookingStatus.PENDING,
+                BookingStatus.CREATED,
                 Instant.now()
         );
 
         BookingEntity saved = bookingRepository.save(bookingEntity);
 
-        return new BookingResponse("CREATED", "Booking created successfully", saved.getId());
+        return new BookingResponse(
+                "CREATED",
+                "Booking created successfully",
+                saved.getId()
+        );
     }
 }

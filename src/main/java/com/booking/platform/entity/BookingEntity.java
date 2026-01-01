@@ -3,6 +3,7 @@ package com.booking.platform.entity;
 import com.booking.platform.domain.BookingStatus;
 import com.booking.platform.domain.RoomType;
 import jakarta.persistence.*;
+
 import java.time.Instant;
 
 @Entity
@@ -32,6 +33,9 @@ public class BookingEntity {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(nullable = false)
+    private Instant updatedAt;
+
     protected BookingEntity() {
     }
 
@@ -43,33 +47,50 @@ public class BookingEntity {
         this.nights = nights;
         this.status = status;
         this.createdAt = createdAt;
+        this.updatedAt = createdAt;
     }
 
+    // Lifecycle transition
+    public void changeStatus(BookingStatus newStatus) {
+        if(!isValidTransition(this.status, newStatus)) {
+            throw new IllegalStateException("Invalid booking state transition: " + this.status +
+                    " -> " + newStatus);
+        }
+
+        this.status = newStatus;
+        this.updatedAt = Instant.now();
+    }
+
+    private boolean  isValidTransition(BookingStatus from, BookingStatus to) {
+        return switch (from) {
+            case CREATED -> to == BookingStatus.CONFIRMED || to == BookingStatus.CANCELLED || to == BookingStatus.EXPIRED;
+            case CONFIRMED -> false;
+            case CANCELLED -> false;
+            case EXPIRED -> false;
+        };
+    }
+
+    // getters
     public Long getId() {
         return id;
     }
-
     public String getUserName() {
         return userName;
     }
-
     public String getHotelName() {
         return hotelName;
     }
-
     public RoomType getRoomType() {
         return roomType;
     }
-
     public Integer getNights() {
         return nights;
     }
-
     public BookingStatus getStatus() {
         return status;
     }
-
     public Instant getCreatedAt() {
         return createdAt;
     }
+    public Instant getUpdatedAt() { return updatedAt; }
 }
