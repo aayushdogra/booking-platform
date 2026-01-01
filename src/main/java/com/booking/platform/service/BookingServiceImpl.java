@@ -1,14 +1,13 @@
 package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
-import com.booking.platform.domain.RoomType;
 import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -43,8 +42,6 @@ public class BookingServiceImpl implements BookingService{
                 request.getRoomType(),
                 request.getNights(),
                 BookingStatus.CREATED,
-                Instant.now(),
-                Instant.now(),
                 request.getIdempotencyKey()
         );
 
@@ -54,6 +51,30 @@ public class BookingServiceImpl implements BookingService{
                 "CREATED",
                 "Booking created successfully",
                 saved.getId()
+        );
+    }
+
+    @Override
+    public BookingResponse getBookingById(Long id) {
+        BookingEntity booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+        return mapToResponse(booking);
+    }
+
+    @Override
+    public List<BookingResponse> getBookingsByUser(String userName) {
+        return bookingRepository.findByUserName(userName)
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    private BookingResponse mapToResponse(BookingEntity booking) {
+        return new BookingResponse(
+                booking.getStatus().name(),
+                "Success",
+                booking.getId()
         );
     }
 }

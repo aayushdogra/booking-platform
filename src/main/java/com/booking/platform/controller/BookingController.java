@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/bookings")
 public class BookingController {
@@ -23,5 +25,17 @@ public class BookingController {
         BookingResponse response = bookingService.createBooking(request);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<BookingResponse> getById(@PathVariable Long id) {
+        BookingResponse response = bookingService.getBookingById(id);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<BookingResponse>> getByUser(@RequestParam String userName) {
+        List<BookingResponse> response = bookingService.getBookingsByUser(userName);
+        return ResponseEntity.ok(response);
     }
 }

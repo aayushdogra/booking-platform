@@ -43,15 +43,25 @@ public class BookingEntity {
     }
 
     public BookingEntity(String userName, String hotelName, RoomType roomType, Integer nights,
-                         BookingStatus status, Instant createdAt, Instant updatedAt, String idempotencyKey) {
+                         BookingStatus status, String idempotencyKey) {
         this.userName = userName;
         this.hotelName = hotelName;
         this.roomType = roomType;
         this.nights = nights;
         this.status = status;
-        this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
         this.idempotencyKey = idempotencyKey;
+    }
+
+    // lifecycle hooks
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = Instant.now();
     }
 
     // Lifecycle transition
@@ -62,15 +72,12 @@ public class BookingEntity {
         }
 
         this.status = newStatus;
-        this.updatedAt = Instant.now();
     }
 
     private boolean  isValidTransition(BookingStatus from, BookingStatus to) {
         return switch (from) {
             case CREATED -> to == BookingStatus.CONFIRMED || to == BookingStatus.CANCELLED || to == BookingStatus.EXPIRED;
-            case CONFIRMED -> false;
-            case CANCELLED -> false;
-            case EXPIRED -> false;
+            default -> false;
         };
     }
 
