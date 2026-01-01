@@ -7,6 +7,9 @@ import jakarta.validation.constraints.NotNull;
 
 public class CreateBookingRequest {
 
+    @NotBlank(message = "Idempotency key is required")
+    private String idempotencyKey;
+
     @NotBlank(message = "User name is required")
     private String userName;
 
@@ -21,6 +24,14 @@ public class CreateBookingRequest {
     private Integer nights;
 
     // getters & setters
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
+    }
+
     public String getUserName() {
         return userName;
     }

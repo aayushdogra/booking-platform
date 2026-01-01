@@ -36,18 +36,22 @@ public class BookingEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Column(nullable = false, unique = true)
+    private String idempotencyKey;
+
     protected BookingEntity() {
     }
 
     public BookingEntity(String userName, String hotelName, RoomType roomType, Integer nights,
-                         BookingStatus status, Instant createdAt) {
+                         BookingStatus status, Instant createdAt, Instant updatedAt, String idempotencyKey) {
         this.userName = userName;
         this.hotelName = hotelName;
         this.roomType = roomType;
         this.nights = nights;
         this.status = status;
         this.createdAt = createdAt;
-        this.updatedAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.idempotencyKey = idempotencyKey;
     }
 
     // Lifecycle transition
@@ -93,4 +97,7 @@ public class BookingEntity {
         return createdAt;
     }
     public Instant getUpdatedAt() { return updatedAt; }
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
 }

@@ -9,6 +9,7 @@ import com.booking.platform.repository.BookingRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @Service
 public class BookingServiceImpl implements BookingService{
@@ -22,13 +23,29 @@ public class BookingServiceImpl implements BookingService{
     @Override
     public BookingResponse createBooking(CreateBookingRequest request) {
 
+        // Check idempotency
+        Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
+
+        if(existing.isPresent()) {
+            BookingEntity booking = existing.get();
+
+            return new BookingResponse(
+                    booking.getStatus().name(),
+                    "Duplicate request - returning existing booking",
+                    booking.getId()
+            );
+        }
+
+        // Create new booking
         BookingEntity bookingEntity = new BookingEntity(
                 request.getUserName(),
                 request.getHotelName(),
                 request.getRoomType(),
                 request.getNights(),
                 BookingStatus.CREATED,
-                Instant.now()
+                Instant.now(),
+                Instant.now(),
+                request.getIdempotencyKey()
         );
 
         BookingEntity saved = bookingRepository.save(bookingEntity);
