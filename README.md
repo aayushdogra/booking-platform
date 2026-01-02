@@ -1,8 +1,21 @@
 # Booking Platform (Backend)
 
-Building a production-style Agoda-inspired booking backend built using Java + Spring Boot, designed to demonstrate real-world backend engineering concepts such as clean architecture, persistence, idempotency, lifecycle management, and scalable system design foundations.
+Building a production-style Agoda-inspired booking backend using Java + Spring Boot, designed to demonstrate real-world backend engineering concepts such as clean architecture, persistence, idempotency, lifecycle management, and scalable system design foundations.
 
 This repository evolves step-by-step and mirrors how booking systems are actually built in industry.
+
+---
+
+## What This Project Already Demonstrates
+
+- Clean layered architecture 
+- Domain-driven thinking 
+- State machines 
+- Idempotent APIs 
+- Validation best practices 
+- Proper error modeling 
+- Repository abstraction 
+- Production-style REST APIs
 
 ---
 
@@ -231,14 +244,3 @@ Centralized via `@RestControllerAdvice`.
 ```
 
 ---
-
-## What This Project Already Demonstrates
-
-- Clean layered architecture 
-- Domain-driven thinking 
-- State machines 
-- Idempotent APIs 
-- Validation best practices 
-- Proper error modeling 
-- Repository abstraction 
-- Production-style REST APIs
