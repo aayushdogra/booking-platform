@@ -16,14 +16,14 @@ public class AvailabilityServiceImpl implements AvailabilityService{
     }
 
     @Override
-    public AvailabilityEntity getAvailabilityOrThrow(String hotelName, RoomType roomType, LocalDate date) {
-        return availabilityRepository
+    public void reserve(String hotelName, RoomType roomType, LocalDate date) {
+        AvailabilityEntity availability =  availabilityRepository
                 .findByHotelNameAndRoomTypeAndDate(hotelName, roomType, date)
                 .orElseThrow(() -> new IllegalArgumentException("No availability configured for given date"));
-    }
 
-    @Override
-    public void decrementAvailability(AvailabilityEntity availability) {
+        if(!availability.hasAvailability())
+            throw new IllegalStateException("No rooms available for given date");
+
         availability.decrement();
         availabilityRepository.save(availability);
     }

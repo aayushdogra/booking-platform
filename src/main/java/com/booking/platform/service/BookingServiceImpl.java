@@ -1,7 +1,6 @@
 package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
-import com.booking.platform.entity.AvailabilityEntity;
 import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
@@ -41,18 +40,8 @@ public class BookingServiceImpl implements BookingService {
             );
         }
 
-        // Determine booking date (simplified: today)
-        LocalDate bookingDate = LocalDate.now();
-
-        // Fetch availability
-        AvailabilityEntity availability = availabilityService.getAvailabilityOrThrow(
-                request.getHotelName(),
-                request.getRoomType(),
-                bookingDate
-        );
-
-        // Check + decrement availability
-        availabilityService.decrementAvailability(availability);
+        // Reserve availability
+        availabilityService.reserve(request.getHotelName(), request.getRoomType(), LocalDate.now());
 
         // Create new booking
         BookingEntity bookingEntity = new BookingEntity(
