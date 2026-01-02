@@ -1,36 +1,41 @@
 # Booking Platform (Backend)
 
-Building a production-style Agoda-inspired booking backend using Java + Spring Boot, designed to demonstrate real-world backend engineering concepts such as clean architecture, persistence, idempotency, lifecycle management, and scalable system design foundations.
-
-This repository evolves step-by-step and mirrors how booking systems are actually built in industry.
+Building a production-style Agoda-inspired booking backend using Java + Spring Boot, 
+designed to demonstrate real-world backend engineering concepts such as clean architecture, persistence, 
+idempotency, lifecycle management, transactional consistency, availability modeling, 
+and scalable system design foundations.
 
 ---
 
 ## What This Project Already Demonstrates
 
-- Clean layered architecture 
-- Domain-driven thinking 
-- State machines 
-- Idempotent APIs 
-- Validation best practices 
-- Proper error modeling 
-- Repository abstraction 
-- Production-style REST APIs
+- Clean layered architecture
+- Domain-driven modeling
+- Booking lifecycle & state transitions
+- Idempotent APIs
+- Validation & structured error handling
+- Availability modeling
+- Transaction boundaries
+- Separation of orchestration vs domain logic
+- Foundations for concurrency handling
 
 ---
 
 ## Current Architecture
 ```txt 
-Controller  →  Service  →  Repository  →  Database
+Controller  →  Service (Orchestration) →  Repository  →  Database
 ↓            ↓
-DTOs      Domain + Rules
+DTOs      Domain logic + Rules
 ```
 ### Core Principles
-- Controllers are thin (HTTP only)
-- Services contain business rules
-- Repositories handle persistence only
-- Entities ≠ API DTOs
-- Domain rules are explicit
+- Controllers are thin (HTTP-only)
+- Services coordinate workflows 
+- Availability logic is isolated 
+- Repositories handle persistence only 
+- Entities represent database state 
+- DTOs are API contracts 
+- Domain rules are explicit 
+- Transactions live at the service layer
 
 ---
 
@@ -58,15 +63,19 @@ com.booking.platform
 │
 ├── service
 │   ├── BookingService.java
-│   ├── BookingServiceImpl.java       # Core business logic
+│   ├── BookingServiceImpl.java       # Orchestrates booking flow (transactional)
+│   ├── AvailabilityService.java      # Availability contract
+│   ├── AvailabilityServiceImpl.java  # Availability rules & updates
 │   ├── HealthService.java
 │   └── HealthServiceImpl.java
 │
 ├── repository
-│   └── BookingRepository.java        # JPA access
+│   ├── BookingRepository.java        # JPA access
+│   └── AvailabilityRepository.java   # Availability persistence        
 │
 ├── entity
-│   └── BookingEntity.java            # Persistent model
+│   ├── BookingEntity.java            # Booking persistence model
+│   └── AvailabilityEntity.java       # Inventory per date & room type
 │
 ├── model
 │   ├── CreateBookingRequest.java     # POST request DTO
@@ -92,7 +101,9 @@ com.booking.platform
 ### 1. Health Endpoints
 `GET /health`, `GET /health/db`
 
-Used for readiness / liveness and DB connectivity checks.
+Used for:
+- liveness checks
+- database connectivity validation
 
 ### 2. Booking Creation API (Write Path)
 `POST /bookings`
@@ -155,20 +166,95 @@ Booking systems must tolerate:
 
 Without idempotency → duplicate bookings.
 
-#### How it works
+#### Implementation
 - Client sends `idempotencyKey`
-- Stored in DB with **unique constraint**
-- Repository method: `Optional<BookingEntity> findByIdempotencyKey(String key);`
+- Stored with unique DB constraint
+- Repository lookup prevents duplication 
 
-#### Service behavior
-- If key exists → return existing booking 
-- Else → create new booking
+```java Optional<BookingEntity> findByIdempotencyKey(String key);```
+
+#### Behaviour
+- If key exists → return existing booking
+- Otherwise → create new booking
 
 This guarantees: `Same request → same booking`
 
 ---
 
-### 5. Read APIs
+### 5. Availability Modeling
+
+Availability is modeled explicitly instead of being derived from bookings.
+
+`(hotelName, roomType, date)`
+
+Each row represents capacity for one day.
+
+#### AvailabilityEntity Fields
+
+- `hotelName`
+- `roomType`
+- `date`
+- `totalRooms`
+- `availableRooms`
+- `timestamps`
+
+Unique constraint ensures only one row per:
+
+`hotel + roomType + date`
+
+---
+
+### 6. Availability Service
+
+Availability logic is isolated into its own service.
+
+#### Responsibilities
+- Fetch availability by key
+- Validate remaining capacity
+- Decrement availability
+- Persist changes
+
+#### Public contract
+```java void reserve(String hotelName, RoomType roomType, LocalDate date); ```
+
+---
+
+### 7. Booking ↔ Availability Integration
+
+#### Transactional Flow
+
+```text
+BEGIN TRANSACTION
+  1. Check idempotency
+  2. Reserve availability
+  3. Create booking
+COMMIT
+```
+
+Implemented in `BookingServiceImpl` using `@Transactional`.
+
+#### Why this matters
+- Keeps business logic readable
+- Ensures atomic updates
+- Prevents partial writes
+- Mirrors real backend orchestration
+
+---
+
+### 8. Current Concurrency Model (Intentional Limitation)
+
+The current implementation is correct but naive.
+
+#### Behavior
+- Uses default READ_COMMITTED isolation
+- Can suffer race conditions under heavy concurrency
+- Two requests may read the same availability before commit
+
+This is intentional and serves as the foundation for later improvements.
+
+---
+
+### 9. Read APIs
 
 #### Get booking by ID
 
@@ -202,7 +288,7 @@ Response:
 ```
 ---
 
-## BookingEntity (Persistence Model)
+## 10. BookingEntity (Persistence Model)
 
 ### Fields
 - `id`
@@ -222,7 +308,7 @@ Response:
 
 ---
 
-## Error Handling
+## 11. Error Handling
 
 Centralized via `@RestControllerAdvice`.
 
