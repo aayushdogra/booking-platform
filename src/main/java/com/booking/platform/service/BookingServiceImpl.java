@@ -1,28 +1,34 @@
 package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
+import com.booking.platform.entity.AvailabilityEntity;
 import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 @Service
-public class BookingServiceImpl implements BookingService{
+public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
+    private final AvailabilityService availabilityService;
 
-    public BookingServiceImpl(BookingRepository bookingRepository) {
+    public BookingServiceImpl(BookingRepository bookingRepository, AvailabilityService availabilityService) {
         this.bookingRepository = bookingRepository;
+        this.availabilityService = availabilityService;
     }
 
     @Override
+    @Transactional
     public BookingResponse createBooking(CreateBookingRequest request) {
 
-        // Check idempotency
+        // Idempotency check
         Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
         if(existing.isPresent()) {
@@ -34,6 +40,19 @@ public class BookingServiceImpl implements BookingService{
                     booking.getId()
             );
         }
+
+        // Determine booking date (simplified: today)
+        LocalDate bookingDate = LocalDate.now();
+
+        // Fetch availability
+        AvailabilityEntity availability = availabilityService.getAvailabilityOrThrow(
+                request.getHotelName(),
+                request.getRoomType(),
+                bookingDate
+        );
+
+        // Check + decrement availability
+        availabilityService.decrementAvailability(availability);
 
         // Create new booking
         BookingEntity bookingEntity = new BookingEntity(
