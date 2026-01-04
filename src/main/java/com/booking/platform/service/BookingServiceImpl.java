@@ -27,6 +27,24 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public BookingResponse createBooking(CreateBookingRequest request) {
 
+        /*
+         * Transaction boundary:
+         * ---------------------
+         * This transaction ensures that:
+         * - Availability reservation
+         * - Booking creation
+         * either both succeed or both fail.
+         *
+         * IMPORTANT:
+         * Transactional consistency does NOT prevent race conditions
+         * when multiple requests execute concurrently.
+         *
+         * Under high load, multiple transactions can still:
+         * - Read the same availability row
+         * - See the same availableRooms value
+         * before either transaction commits.
+         */
+
         // 1. Idempotency check
         Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
