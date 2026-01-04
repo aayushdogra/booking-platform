@@ -9,6 +9,7 @@ import java.time.LocalDate;
 
 @Service
 public class AvailabilityServiceImpl implements AvailabilityService{
+
     private final AvailabilityRepository availabilityRepository;
 
     public AvailabilityServiceImpl(AvailabilityRepository availabilityRepository) {

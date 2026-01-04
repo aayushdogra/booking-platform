@@ -6,6 +6,18 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * Availability represents inventory for a specific hotel, room type,
+ * and a single calendar date.
+ *
+ * Each row corresponds to capacity for ONE day.
+ *
+ * Note:
+ * - Availability is quantity-based (not boolean).
+ * - Multi-day bookings are handled by reserving availability
+ *   for EACH date in the booking range.
+ * - Current implementation uses a single date for simplicity.
+ */
 @Entity
 @Table(
         name = "availability",

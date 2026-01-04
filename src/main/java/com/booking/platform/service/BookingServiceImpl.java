@@ -27,7 +27,7 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public BookingResponse createBooking(CreateBookingRequest request) {
 
-        // Idempotency check
+        // 1. Idempotency check
         Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
         if(existing.isPresent()) {
@@ -40,10 +40,16 @@ public class BookingServiceImpl implements BookingService {
             );
         }
 
-        // Reserve availability
-        availabilityService.reserve(request.getHotelName(), request.getRoomType(), LocalDate.now());
+        // 2. Determine booking date
+        // Currently simplified to a single-day booking (today).
+        // In real systems, this would iterate over a date range
+        // and reserve availability for each date in the stay.
+        LocalDate bookingDate = LocalDate.now();
 
-        // Create new booking
+        // 3. Reserve availability
+        availabilityService.reserve(request.getHotelName(), request.getRoomType(), bookingDate);
+
+        // 4. Create new booking
         BookingEntity bookingEntity = new BookingEntity(
                 request.getUserName(),
                 request.getHotelName(),
