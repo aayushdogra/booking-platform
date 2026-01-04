@@ -5,6 +5,7 @@ import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
+import com.booking.platform.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -89,13 +90,14 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public BookingResponse getBookingById(Long id) {
         BookingEntity booking = bookingRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
         return mapToResponse(booking);
     }
 
     @Override
     public List<BookingResponse> getBookingsByUser(String userName) {
+        // Returning empty list is preferred over 404 for collection resources
         return bookingRepository.findByUserName(userName)
                 .stream()
                 .map(this::mapToResponse)

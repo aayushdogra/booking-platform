@@ -59,9 +59,7 @@ public class GlobalExceptionHandler {
 
     // Illegal arguments
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiError> handleIllegalArgument(
-            IllegalArgumentException ex,
-            HttpServletRequest request
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request
     ) {
         ApiError error = new ApiError(
                 HttpStatus.BAD_REQUEST.value(),
@@ -73,11 +71,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(error);
     }
 
+    // Resource not found (404)
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request
+    ) {
+        ApiError error = new ApiError(
+                HttpStatus.NOT_FOUND.value(),
+                "Not Found",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
     // Fallback (important!)
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleGeneric(
-            Exception ex,
-            HttpServletRequest request
+    public ResponseEntity<ApiError> handleGeneric(Exception ex, HttpServletRequest request
     ) {
         ApiError error = new ApiError(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
