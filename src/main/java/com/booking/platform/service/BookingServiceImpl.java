@@ -6,6 +6,7 @@ import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
 import com.booking.platform.exception.ResourceNotFoundException;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -98,7 +99,9 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public List<BookingResponse> getBookingsByUser(String userName) {
         // Returning empty list is preferred over 404 for collection resources
-        return bookingRepository.findByUserName(userName)
+        Sort sort = Sort.by(Sort.Direction.DESC, "createdAt");
+
+        return bookingRepository.findByUserName(userName, sort)
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
