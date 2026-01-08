@@ -57,6 +57,9 @@ com.booking.platform
 │
 ├── BookingPlatformApplication.java
 │
+├── config
+│   └── AvailabilityDataInitializer.java         
+│
 ├── controller
 │   ├── BookingController.java        # Create + Read APIs
 │   └── HealthController.java         # Health & DB check
@@ -328,5 +331,135 @@ Centralized via `@RestControllerAdvice`.
     "path": "/bookings"
 }
 ```
+## 12. Booking Cancellation (Write Path)
+
+### Cancel Booking API
+`POST /bookings/{id}/cancel`
+
+This endpoint allows a user to cancel an existing booking.
+
+#### Behaviour
+- Transitions booking state to `CANCELLED`
+- Releases reserved availability
+- Is idempotent (safe to call multiple times)
+- Returns success even if the booking was already `cancelled`
+
+#### Why this matters
+- Cancellation is a real-world requirement
+- Inventory must be returned to the pool
+- Destructive operations must be idempotent
+
+#### Transactional Cancellation Flow
+```txt
+BEGIN TRANSACTION
+1. Fetch booking by ID
+2. If already CANCELLED → return success
+3. Transition booking state to CANCELLED
+4. Release availability
+   COMMIT
+```
+
+Implemented in `BookingServiceImpl` using `@Transactional`.
+
+This ensures:
+- Booking state and inventory are updated atomically
+- Partial updates cannot occur
+- System invariants are preserved
+
+---
+
+## 13. Availability Release (Inventory Symmetry)
+
+Availability release is implemented as the inverse of reservation.
+
+### Inventory Operations
+```text
+reserve() → availableRooms--
+release() → availableRooms++
+```
+
+### Domain Enforcement
+- Inventory cannot go below zero
+- Inventory cannot exceed total capacity
+
+These invariants are enforced inside `AvailabilityEntity`.
+
+This symmetry ensures:
+- Correct behavior during cancellations
+- Inventory consistency over time
+
+---
+
+## 14. Idempotent Cancellation Semantics
+
+Cancellation is designed to be idempotent.
+
+#### Behaviour
+- Cancelling an already `cancelled` booking:
+    - Does not throw an error 
+    - Does not release availability again 
+    - Returns a successful response
+
+This protects the system against:
+- Client retries
+- Duplicate requests
+- Concurrent cancellation attempts
+
+---
+
+## 15. Concurrency Awareness (Documented, Not Yet Fixed)
+
+Both reservation and release follow a read–modify–write pattern.
+
+### Known Limitations
+- Multiple concurrent transactions can read the same availability
+- Default isolation level is `READ_COMMITTED`
+- Race conditions are possible under high concurrency
+
+These limitations are explicitly documented in code.
+
+The system is:
+- Correct under low concurrency
+- Intentionally naive as a foundation for later improvements
+
+---
+
+## 16. Dev-Only Availability Seeding
+
+To support local development and testing, availability is pre-seeded in development mode.
+
+### Characteristics
+- Runs only under the `dev` profile
+- Seeds availability for known hotels, room types, and dates
+- Does not run in production
+- Does not affect booking or availability logic
+
+#### This avoids:
+- Manual database inserts during development
+- Polluting core domain logic with test behavior
+
+---
+
+## 17. Clear Separation of Read vs Write Paths
+
+### Read Paths
+ - `GET /bookings/{id}`
+- `GET /bookings?userName=...`
+
+#### Characteristics:
+- Non-transactional
+- Side-effect free
+- Lightweight and scalable
+
+### Write Paths
+- `POST /bookings`
+- `POST /bookings/{id}/cancel`
+
+#### Characteristics:
+- Transactional
+- Enforce domain invariants
+- Mutate multiple entities atomically
+
+This separation mirrors real production backend systems.
 
 ---

@@ -86,6 +86,14 @@ public class AvailabilityEntity {
         this.availableRooms--;
     }
 
+    public void increment() {
+        if (availableRooms >= totalRooms) {
+            throw new IllegalStateException("Cannot release availability beyond total capacity");
+        }
+
+        this.availableRooms++;
+    }
+
     // Getters
     public Long getId() { return id; }
     public String getHotelName() { return hotelName; }

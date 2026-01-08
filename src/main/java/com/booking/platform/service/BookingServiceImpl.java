@@ -45,9 +45,27 @@ public class BookingServiceImpl implements BookingService {
          * - Read the same availability row
          * - See the same availableRooms value
          * before either transaction commits.
+         *
+         * This read-modify-write sequence is vulnerable under high concurrency.
+         *
+         * Multiple transactions can:
+         * - read the same availability
+         * - pass validation
+         * - decrement concurrently
+         *
+         * This is acceptable for now because:
+         * - traffic is low
+         * - correctness improvements (locking / retries) come next
          */
 
         // 1. Idempotency check
+        /*
+         * IDEMPOTENCY NOTE:
+         * -----------------
+         * Code-level checks prevent duplicate retries.
+         * Database-level UNIQUE constraint guarantees safety
+         * under concurrent requests with the same idempotency key.
+         */
         Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
         if(existing.isPresent()) {
@@ -82,7 +100,7 @@ public class BookingServiceImpl implements BookingService {
         BookingEntity saved = bookingRepository.save(bookingEntity);
 
         return new BookingResponse(
-                "CREATED",
+                BookingStatus.CREATED.name(),
                 "Booking created successfully",
                 saved.getId()
         );
@@ -111,6 +129,61 @@ public class BookingServiceImpl implements BookingService {
         return new BookingResponse(
                 booking.getStatus().name(),
                 "Success",
+                booking.getId()
+        );
+    }
+
+    @Override
+    @Transactional
+    public BookingResponse cancelBooking(Long id) {
+
+        /*
+         * CONCURRENCY NOTE:
+         * -----------------
+         * This release operation is also vulnerable under high concurrency.
+         * Optimistic locking / retries will be added in a later phase.
+         *
+         * DESIGN NOTE:
+         * ------------
+         * Cancellation is implemented as a state transition
+         * followed by inventory release.
+         *
+         * This ensures:
+         * - domain invariants are enforced
+         * - availability is never released for invalid bookings
+         */
+
+        BookingEntity booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
+
+        // Idempotent cancellation
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return new BookingResponse(
+                    BookingStatus.CANCELLED.name(),
+                    "Booking already cancelled",
+                    booking.getId()
+            );
+        }
+
+        /*
+         * State transition is enforced inside the entity.
+         * Illegal transitions will throw an exception.
+         */
+        booking.changeStatus(BookingStatus.CANCELLED);
+
+        /*
+         * Availability release happens AFTER state transition.
+         * This ensures we never release availability for invalid bookings.
+         */
+        availabilityService.release(
+                booking.getHotelName(),
+                booking.getRoomType(),
+                booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        );
+
+        return new BookingResponse(
+                BookingStatus.CANCELLED.name(),
+                "Booking cancelled successfully",
                 booking.getId()
         );
     }

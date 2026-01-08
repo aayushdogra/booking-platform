@@ -24,4 +24,5 @@ public interface AvailabilityService {
      *   per date in the booking date range.
      */
     void reserve(String hotelName, RoomType roomType, LocalDate date);
+    void release(String hotelName, RoomType roomType, LocalDate date);
 }

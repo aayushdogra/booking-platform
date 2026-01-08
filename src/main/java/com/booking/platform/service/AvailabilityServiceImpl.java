@@ -53,4 +53,27 @@ public class AvailabilityServiceImpl implements AvailabilityService{
         availability.decrement();
         availabilityRepository.save(availability);
     }
+
+    @Override
+    public void release(String hotelName, RoomType roomType, LocalDate date) {
+
+        /*
+         * RELEASE LOGIC:
+         * --------------
+         * Releasing availability is the inverse of reserve().
+         *
+         * This method is invoked during cancellation flows.
+         *
+         * IMPORTANT:
+         * - This operation is also vulnerable under concurrency.
+         * - Optimistic locking / retries will be added later.
+         */
+
+        AvailabilityEntity availability = availabilityRepository
+                .findByHotelNameAndRoomTypeAndDate(hotelName, roomType, date)
+                .orElseThrow(() -> new IllegalArgumentException("No availability configured for given date"));
+
+        availability.increment();
+        availabilityRepository.save(availability);
+    }
 }
