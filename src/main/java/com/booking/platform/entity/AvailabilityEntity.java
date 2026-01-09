@@ -52,6 +52,9 @@ public class AvailabilityEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Version
+    private Long version;
+
     protected AvailabilityEntity() {}
 
     public AvailabilityEntity(String hotelName, RoomType roomType, LocalDate date,  Integer totalRooms, Integer availableRooms) {
