@@ -43,6 +43,15 @@ public class AvailabilityServiceImpl implements AvailabilityService{
          * only under low concurrency.
          */
 
+        /*
+         * OPTIMISTIC LOCKING NOTE:
+         * -----------------------
+         * If another transaction updates this availability row
+         * before this transaction commits, Hibernate will throw
+         * an OptimisticLockException.
+         *
+         * This is expected and desirable behavior.
+         */
         AvailabilityEntity availability =  availabilityRepository
                 .findByHotelNameAndRoomTypeAndDate(hotelName, roomType, date)
                 .orElseThrow(() -> new IllegalArgumentException("No availability configured for given date"));

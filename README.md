@@ -159,7 +159,7 @@ This enforces domain correctness.
 
 ---
 
-### 4 Idempotent Booking Creation (Critical Feature)
+### 4. Idempotent Booking Creation (Critical Feature)
 
 #### Why this matters
 Booking systems must tolerate:
@@ -461,5 +461,49 @@ To support local development and testing, availability is pre-seeded in developm
 - Mutate multiple entities atomically
 
 This separation mirrors real production backend systems.
+
+---
+
+## 18. Optimistic Locking (Concurrency Control)
+
+Availability updates use **optimistic locking** to detect concurrent write conflicts.
+
+### Implementation
+
+- AvailabilityEntity includes a version field:
+```java
+@Version
+private Long version;
+```
+- Every availability update is guarded by a version check at the database level.
+- If another transaction modifies the same row before commit, the update fails.
+
+This prevents **lost updates and silent overbooking**.
+
+---
+
+## 19. Observed Concurrency Failure Mode (Verified)
+
+Concurrent booking requests against the same availability row were tested using parallel requests.
+
+### Observed Behavior
+- One booking succeeds 
+- One booking fails with a concurrency conflict 
+- Inventory is decremented exactly once 
+- Version increments exactly once 
+- No data corruption occurs
+
+### API Response on Conflict
+
+```json
+{
+  "status": 409,
+  "error": "Concurrency Conflict",
+  "message": "Resource was modified by another request. Please retry.",
+  "path": "/bookings"
+}
+```
+
+This failure mode is intentional and desirable.
 
 ---
