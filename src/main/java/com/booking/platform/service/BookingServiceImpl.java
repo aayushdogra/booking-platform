@@ -2,6 +2,7 @@ package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
 import com.booking.platform.entity.BookingEntity;
+import com.booking.platform.exception.RetryExhaustedException;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
@@ -40,7 +41,11 @@ public class BookingServiceImpl implements BookingService {
          *
          * Retries are bounded to avoid:
          * - infinite loops
+         * - request amplification under load
          * - thundering herd under load
+         *
+         * If contention persists after retries,
+         * we fail fast and surface a concurrency conflict.
          */
         while (true) {
             try {
@@ -49,10 +54,9 @@ public class BookingServiceImpl implements BookingService {
             } catch (ObjectOptimisticLockingFailureException ex) {
 
                 if (attempt >= MAX_RETRIES) {
-                    throw ex;
+                    throw new RetryExhaustedException(
+                            "Booking could not be completed due to high contention. Please retry.");
                 }
-
-                // retry with fresh transaction
             }
         }
     }

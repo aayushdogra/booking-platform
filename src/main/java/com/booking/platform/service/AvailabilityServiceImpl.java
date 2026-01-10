@@ -60,13 +60,6 @@ public class AvailabilityServiceImpl implements AvailabilityService{
             throw new IllegalStateException("No rooms available for given date");
 
         availability.decrement();
-
-//        try {
-//            Thread.sleep(200);
-//        } catch (InterruptedException e) {
-//            Thread.currentThread().interrupt();
-//        }
-
         availabilityRepository.save(availability);
     }
 
