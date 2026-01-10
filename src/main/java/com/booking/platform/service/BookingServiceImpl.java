@@ -7,6 +7,7 @@ import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
 import com.booking.platform.exception.ResourceNotFoundException;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,15 +21,44 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final AvailabilityService availabilityService;
 
+    private static final int MAX_RETRIES = 3;
+
     public BookingServiceImpl(BookingRepository bookingRepository, AvailabilityService availabilityService) {
         this.bookingRepository = bookingRepository;
         this.availabilityService = availabilityService;
     }
 
     @Override
-    @Transactional
     public BookingResponse createBooking(CreateBookingRequest request) {
+        int attempt = 0;
 
+        /*
+         * RETRY STRATEGY:
+         *
+         * Optimistic locking failures indicate concurrent modification.
+         * We retry a bounded number of times using fresh transactions.
+         *
+         * Retries are bounded to avoid:
+         * - infinite loops
+         * - thundering herd under load
+         */
+        while (true) {
+            try {
+                attempt++;
+                return createBookingInternal(request);
+            } catch (ObjectOptimisticLockingFailureException ex) {
+
+                if (attempt >= MAX_RETRIES) {
+                    throw ex;
+                }
+
+                // retry with fresh transaction
+            }
+        }
+    }
+
+    @Transactional
+    protected BookingResponse createBookingInternal(CreateBookingRequest request) {
         /*
          * Transaction boundary:
          * ---------------------

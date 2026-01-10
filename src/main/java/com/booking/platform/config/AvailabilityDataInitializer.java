@@ -25,7 +25,11 @@ public class AvailabilityDataInitializer implements CommandLineRunner {
         LocalDate today = LocalDate.now();
 
         seedIfMissing("TAJ", RoomType.DELUXE, today, 5);
+        seedIfMissing("TAJ", RoomType.SINGLE, today, 10);
+        seedIfMissing("TAJ", RoomType.DOUBLE, today, 5);
+        seedIfMissing("Hilton", RoomType.DELUXE, today, 5);
         seedIfMissing("Hilton", RoomType.SINGLE, today, 10);
+        seedIfMissing("Hilton", RoomType.DOUBLE, today, 5);
     }
 
     private void seedIfMissing(String hotelName, RoomType roomType, LocalDate date,int totalRooms) {
