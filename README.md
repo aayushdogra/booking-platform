@@ -507,3 +507,63 @@ Concurrent booking requests against the same availability row were tested using 
 This failure mode is intentional and desirable.
 
 ---
+## 20. Retry Logic for Optimistic Locking
+
+To improve success rates under concurrent writes, booking creation is wrapped in a **bounded retry mechanism**.
+
+### Implementation
+- Booking creation is retried on optimistic locking failures
+- Retries are bounded (max retries = 3)
+- Each retry runs in a fresh transaction
+- Retries are applied only for concurrency conflicts
+
+Retry logic lives in the **service orchestration layer**, not in controllers or repositories.
+
+This ensures:
+- Correctness is preserved
+- Transient conflicts are resolved automatically
+- The system does not overload itself under contention
+
+---
+
+## 21. Failure Semantics Under Concurrency
+
+The booking system exposes clear and **deterministic failure behavior** under load.
+
+### Verified Behaviors
+
+#### a) Transient contention
+- Concurrent requests may initially conflict
+- Retries resolve conflicts when capacity allows
+- Booking succeeds without client involvement
+
+#### b) Sustained contention (retry exhaustion)
+- When conflicts persist beyond retry limit
+- Booking fails cleanly with HTTP 409 Conflict
+
+```json
+{
+  "status": 409,
+  "error": "Concurrency Conflict",
+  "message": "Booking could not be completed due to high contention. Please retry."
+}
+```
+
+#### c) Capacity exhaustion
+- When no rooms remain
+- Booking fails with HTTP 409 Conflict
+- Inventory is never over-decremented
+
+```json
+{
+  "status": 409,
+  "error": "Conflict",
+  "message": "No rooms available for given date"
+}
+```
+#### d) Idempotent retries
+- Duplicate requests with the same idempotency key
+- Return the original booking
+- Do not mutate availability again
+
+---
