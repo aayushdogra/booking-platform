@@ -5,10 +5,14 @@ import com.booking.platform.domain.RoomType;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.time.Duration;
 
 @Entity
 @Table(name = "bookings")
 public class BookingEntity {
+
+    private static final Duration HOLD_DURATION = Duration.ofMinutes(25);
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -39,6 +43,9 @@ public class BookingEntity {
     @Column(nullable = false, unique = true)
     private String idempotencyKey;
 
+    @Column(nullable = false)
+    private Instant holdUntil;
+
     protected BookingEntity() {
     }
 
@@ -50,6 +57,7 @@ public class BookingEntity {
         this.nights = nights;
         this.status = status;
         this.idempotencyKey = idempotencyKey;
+        this.holdUntil = Instant.now().plus(HOLD_DURATION);
     }
 
     // lifecycle hooks
@@ -76,9 +84,20 @@ public class BookingEntity {
 
     private boolean  isValidTransition(BookingStatus from, BookingStatus to) {
         return switch (from) {
-            case CREATED -> to == BookingStatus.CONFIRMED || to == BookingStatus.CANCELLED || to == BookingStatus.EXPIRED;
+            case CREATED ->
+                    to == BookingStatus.CONFIRMED || to == BookingStatus.CANCELLED || to == BookingStatus.EXPIRED;
             default -> false;
         };
+    }
+
+    public boolean isExpired(Instant now) {
+        return status == BookingStatus.CREATED && holdUntil.isBefore(now);
+    }
+
+    public void expireIfNeeded(Instant now) {
+        if(isExpired(now)) {
+            changeStatus(BookingStatus.EXPIRED);
+        }
     }
 
     // getters
@@ -106,5 +125,8 @@ public class BookingEntity {
     public Instant getUpdatedAt() { return updatedAt; }
     public String getIdempotencyKey() {
         return idempotencyKey;
+    }
+    public Instant getHoldUntil() {
+        return holdUntil;
     }
 }

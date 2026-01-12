@@ -1,9 +1,13 @@
 # Booking Platform (Backend)
 
-Building a production-style Agoda-inspired booking backend using Java + Spring Boot, 
-designed to demonstrate real-world backend engineering concepts such as clean architecture, persistence, 
-idempotency, lifecycle management, transactional consistency, availability modeling, 
-and scalable system design foundations.
+Building a production-style, Agoda-inspired booking backend using Java 21 + Spring Boot, 
+
+This project demonstrates **real-world backend engineering concepts** including clean architecture,
+domain-driven design, persistence, transactional correctness & consistency, lifecycle management, 
+idempotency, availability modeling, bounded retries, optimistic locking, and time-bound booking holds 
+with expiry and scalable system design foundations.
+
+The system is intentionally evolved in phases to mirror how real booking systems are built.
 
 ---
 
@@ -11,31 +15,33 @@ and scalable system design foundations.
 
 - Clean layered architecture
 - Domain-driven modeling
-- Booking lifecycle & state transitions
-- Idempotent APIs
-- Validation & structured error handling
-- Availability modeling
-- Transaction boundaries
-- Separation of orchestration vs domain logic
-- Foundations for concurrency handling
+- Explicit booking lifecycle & state machine
+- Idempotent write APIs
+- Transactional consistency
+- Availability as a first-class domain concept
+- Optimistic locking + bounded retries
+- Deterministic failure semantics
+- Time-bound booking holds with expiry
+- Clear separation of system-driven vs user-driven actions
 
 ---
 
 ## Current Architecture
 ```txt 
 Controller  →  Service (Orchestration) →  Repository  →  Database
-↓            ↓
-DTOs      Domain logic + Rules
+↓            
+DTOs
+
 ```
 ### Core Principles
 - Controllers are thin (HTTP-only)
-- Services coordinate workflows 
-- Availability logic is isolated 
-- Repositories handle persistence only 
-- Entities represent database state 
-- DTOs are API contracts 
-- Domain rules are explicit 
+- Services orchestrate workflows
+- Availability logic is isolated
+- Repositories handle persistence only
+- Entities enforce domain rules
+- DTOs are API contracts
 - Transactions live at the service layer
+- State transitions are explicit and validated
 
 ---
 
@@ -52,6 +58,7 @@ DTOs      Domain logic + Rules
 ---
 
 ## Project Structure
+
 ```txt
 com.booking.platform
 │
@@ -92,10 +99,12 @@ com.booking.platform
 │   ├── User.java
 │   ├── Hotel.java
 │   └── Room.java
-│
+│ 
 ├── exception
 │   ├── ApiError.java
-│   └── GlobalExceptionHandler.java
+│   ├── GlobalExceptionHandler.java
+│   ├── ResourceNotFoundException.java
+│   └── RetryExhaustedException.java
 ```
 ---
 
@@ -137,25 +146,24 @@ Validation errors return structured responses.
 
 #### Supported States
 
-```txt
-CREATED
-CONFIRMED
-CANCELLED
-EXPIRED
+```text
+CREATED    → booking created, inventory held
+CONFIRMED  → payment successful (future phase)
+CANCELLED  → user cancelled
+EXPIRED    → system timeout (no payment)
 ```
-
 #### Allowed Transitions
 
-```txt
+```text
 CREATED → CONFIRMED
 CREATED → CANCELLED
 CREATED → EXPIRED
 ```
 
-Invalid transitions throw exceptions.
-Lifecycle logic lives inside `BookingEntity`: `changeStatus(...)`
-
-This enforces domain correctness.
+- `EXPIRED` and `CANCELLED` are terminal
+- Invalid transitions throw exceptions
+- Lifecycle rules live inside `BookingEntity`
+- This enforces domain correctness.
 
 ---
 
@@ -565,5 +573,30 @@ The booking system exposes clear and **deterministic failure behavior** under lo
 - Duplicate requests with the same idempotency key
 - Return the original booking
 - Do not mutate availability again
+
+---
+
+### 22. Time-Bound Booking Holds (Phase 3)
+
+#### Why Booking Expiry Exists
+
+In real systems:
+- Users abandon checkout
+- Payments fail
+- Tabs close
+
+Without expiry:
+- Inventory gets locked forever
+- Business loses sellable capacity
+
+Hold Model
+- Bookings start in CREATED
+- Inventory is reserved immediately
+- A hold window (e.g. 15 minutes) is applied
+- If payment is not completed → booking EXPIRES
+
+Expiry is a **one-time transition:**
+
+`CREATED → EXPIRED`
 
 ---

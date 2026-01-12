@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -141,9 +142,12 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
+    @Transactional
     public BookingResponse getBookingById(Long id) {
         BookingEntity booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
+
+        expireBookingIfNeeded(booking);
 
         return mapToResponse(booking);
     }
@@ -190,6 +194,18 @@ public class BookingServiceImpl implements BookingService {
         BookingEntity booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
+        // Expire first if needed
+        expireBookingIfNeeded(booking);
+
+        // Expired bookings cancellation is not allowed
+        if (booking.getStatus() == BookingStatus.EXPIRED) {
+            return new BookingResponse(
+                    BookingStatus.EXPIRED.name(),
+                    "Booking already expired and cannot be cancelled",
+                    booking.getId()
+            );
+        }
+
         // Idempotent cancellation
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             return new BookingResponse(
@@ -212,13 +228,33 @@ public class BookingServiceImpl implements BookingService {
         availabilityService.release(
                 booking.getHotelName(),
                 booking.getRoomType(),
-                booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                booking.getCreatedAt()
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate()
         );
 
         return new BookingResponse(
                 BookingStatus.CANCELLED.name(),
                 "Booking cancelled successfully",
                 booking.getId()
+        );
+    }
+
+    @Transactional
+    protected void expireBookingIfNeeded(BookingEntity booking) {
+
+        if(!booking.isExpired(Instant.now())) {
+            return;
+        }
+
+        booking.expireIfNeeded(Instant.now());
+
+        availabilityService.release(
+                booking.getHotelName(),
+                booking.getRoomType(),
+                booking.getCreatedAt()
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate()
         );
     }
 }
