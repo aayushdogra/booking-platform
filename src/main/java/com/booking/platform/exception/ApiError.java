@@ -4,11 +4,11 @@ import java.time.Instant;
 
 public class ApiError {
 
-    private Instant timestamp;
-    private int status;
-    private String error;
-    private String message;
-    private String path;
+    private final Instant timestamp;
+    private final int status;
+    private final String error;
+    private final String message;
+    private final String path;
 
     public ApiError(int status, String error, String message, String path) {
         this.timestamp = Instant.now();

@@ -1,12 +1,14 @@
 package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
+import com.booking.platform.domain.PaymentStatus;
 import com.booking.platform.entity.BookingEntity;
+import com.booking.platform.exception.ConflictException;
+import com.booking.platform.exception.ResourceNotFoundException;
 import com.booking.platform.exception.RetryExhaustedException;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
-import com.booking.platform.exception.ResourceNotFoundException;
 import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -22,12 +24,14 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final AvailabilityService availabilityService;
+    private final PaymentService paymentService;
 
     private static final int MAX_RETRIES = 3;
 
-    public BookingServiceImpl(BookingRepository bookingRepository, AvailabilityService availabilityService) {
+    public BookingServiceImpl(BookingRepository bookingRepository, AvailabilityService availabilityService, PaymentService  paymentService) {
         this.bookingRepository = bookingRepository;
         this.availabilityService = availabilityService;
+        this.paymentService = paymentService;
     }
 
     @Override
@@ -101,7 +105,8 @@ public class BookingServiceImpl implements BookingService {
          * Database-level UNIQUE constraint guarantees safety
          * under concurrent requests with the same idempotency key.
          */
-        Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(request.getIdempotencyKey());
+        Optional<BookingEntity> existing = bookingRepository.findByIdempotencyKey(
+                request.getIdempotencyKey());
 
         if(existing.isPresent()) {
             BookingEntity booking = existing.get();
@@ -163,14 +168,7 @@ public class BookingServiceImpl implements BookingService {
                 .toList();
     }
 
-    private BookingResponse mapToResponse(BookingEntity booking) {
-        return new BookingResponse(
-                booking.getStatus().name(),
-                "Success",
-                booking.getId()
-        );
-    }
-
+    // Cancellation
     @Override
     @Transactional
     public BookingResponse cancelBooking(Long id) {
@@ -240,6 +238,42 @@ public class BookingServiceImpl implements BookingService {
         );
     }
 
+    // Payment -> Confirmation
+    @Override
+    @Transactional
+    public BookingResponse confirmBooking(Long id) {
+        BookingEntity booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
+
+        // 1. Enforce expiry first
+        expireBookingIfNeeded(booking);
+
+        if(booking.getStatus() == BookingStatus.EXPIRED) {
+            throw new ConflictException("Booking has expired");
+        }
+
+        if(booking.getStatus() == BookingStatus.CONFIRMED) {
+            return mapToResponse(booking);
+        }
+
+        // 2. Initiate payment
+        PaymentStatus paymentStatus = paymentService.initiatePayment(id);
+
+        // 3. Act on payment result
+        if(paymentStatus == PaymentStatus.SUCCESS) {
+            booking.changeStatus(BookingStatus.CONFIRMED);
+            return mapToResponse(booking);
+        }
+
+        // FAILURE -> booking stays CREATED until EXPIRED
+        return new BookingResponse(
+                BookingStatus.CREATED.name(),
+                "Payment failed, booking not confirmed",
+                booking.getId()
+        );
+    }
+
+    // Expiry
     @Transactional
     protected void expireBookingIfNeeded(BookingEntity booking) {
 
@@ -255,6 +289,14 @@ public class BookingServiceImpl implements BookingService {
                 booking.getCreatedAt()
                         .atZone(java.time.ZoneId.systemDefault())
                         .toLocalDate()
+        );
+    }
+
+    private BookingResponse mapToResponse(BookingEntity booking) {
+        return new BookingResponse(
+                booking.getStatus().name(),
+                "Success",
+                booking.getId()
         );
     }
 }

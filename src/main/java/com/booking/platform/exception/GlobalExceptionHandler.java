@@ -112,6 +112,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiError> handleConflict(ConflictException ex, HttpServletRequest request) {
+        ApiError error = new ApiError(
+                HttpStatus.CONFLICT.value(),
+                "Conflict",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiError> handleIllegalState(IllegalStateException ex, HttpServletRequest request) {
         ApiError error = new ApiError(

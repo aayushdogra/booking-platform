@@ -44,4 +44,10 @@ public class BookingController {
         BookingResponse response = bookingService.cancelBooking(id);
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/bookings/{id}/confirm")
+    public BookingResponse confirm(@PathVariable Long id) {
+        return bookingService.confirmBooking(id);
+    }
+
 }
