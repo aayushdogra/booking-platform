@@ -1,13 +1,13 @@
 # Booking Platform (Backend)
 
-Building a production-style, Agoda-inspired booking backend using Java 21 + Spring Boot, 
+Building a production-style, Agoda-inspired booking backend using **Java 21 + Spring Boot**.
 
 This project demonstrates **real-world backend engineering concepts** including clean architecture,
 domain-driven design, persistence, transactional correctness & consistency, lifecycle management, 
-idempotency, availability modeling, bounded retries, optimistic locking, and time-bound booking holds 
-with expiry and scalable system design foundations.
+idempotency, availability modeling, optimistic locking with bounded retries, time-bound booking holds 
+with expiry and synchronous payment confirmation flows.
 
-The system is intentionally evolved in phases to mirror how real booking systems are built.
+The system is intentionally evolved in phases to mirror how real booking systems are built in production.
 
 ---
 
@@ -22,6 +22,7 @@ The system is intentionally evolved in phases to mirror how real booking systems
 - Optimistic locking + bounded retries
 - Deterministic failure semantics
 - Time-bound booking holds with expiry
+- Synchronous payment orchestration
 - Clear separation of system-driven vs user-driven actions
 
 ---
@@ -37,6 +38,7 @@ DTOs
 - Controllers are thin (HTTP-only)
 - Services orchestrate workflows
 - Availability logic is isolated
+- Payment logic is isolated
 - Repositories handle persistence only
 - Entities enforce domain rules
 - DTOs are API contracts
@@ -68,40 +70,46 @@ com.booking.platform
 │   └── AvailabilityDataInitializer.java         
 │
 ├── controller
-│   ├── BookingController.java        # Create + Read APIs
-│   └── HealthController.java         # Health & DB check
+│   ├── BookingController.java        
+│   └── HealthController.java         
 │
 ├── service
 │   ├── BookingService.java
-│   ├── BookingServiceImpl.java       # Orchestrates booking flow (transactional)
-│   ├── AvailabilityService.java      # Availability contract
-│   ├── AvailabilityServiceImpl.java  # Availability rules & updates
+│   ├── BookingServiceImpl.java       
+│   ├── AvailabilityService.java      
+│   ├── AvailabilityServiceImpl.java  
 │   ├── HealthService.java
-│   └── HealthServiceImpl.java
+│   ├── HealthServiceImpl.java
+│   ├── PaymentService.java
+│   └── PaymentServiceImpl.java
 │
 ├── repository
-│   ├── BookingRepository.java        # JPA access
-│   └── AvailabilityRepository.java   # Availability persistence        
+│   ├── AvailabilityRepository.java   
+│   ├── BookingRepository.java       
+│   └── PaymentRepository.java  
 │
 ├── entity
-│   ├── BookingEntity.java            # Booking persistence model
-│   └── AvailabilityEntity.java       # Inventory per date & room type
+│   ├── BookingEntity.java            
+│   ├── PaymentEntity.java
+│   └── AvailabilityEntity.java       
 │
 ├── model
-│   ├── CreateBookingRequest.java     # POST request DTO
+│   ├── CreateBookingRequest.java     
 │   ├── BookingDetailsResponse.java
-│   └── BookingResponse.java          # Response DTO
+│   └── BookingResponse.java         
 │
 ├── domain
-│   ├── BookingStatus.java            # Booking lifecycle states
-│   ├── RoomType.java                 # Enum
-│   ├── Booking.java                  # Pure domain model
-│   ├── User.java
+│   ├── Booking.java                  
+│   ├── BookingStatus.java            
 │   ├── Hotel.java
-│   └── Room.java
+│   ├── PaymentStatus.java            
+│   ├── Room.java
+│   ├── RoomType.java                 
+│   └── User.java
 │ 
 ├── exception
 │   ├── ApiError.java
+│   ├── ConflictException.java
 │   ├── GlobalExceptionHandler.java
 │   ├── ResourceNotFoundException.java
 │   └── RetryExhaustedException.java
@@ -598,5 +606,59 @@ Hold Model
 Expiry is a **one-time transition:**
 
 `CREATED → EXPIRED`
+
+---
+
+### 23. Synchronous Payments
+
+Introduced **payment confirmation** into the booking lifecycle using a simple, **synchronous flow**.
+
+This phase intentionally avoids:
+- Async processing
+- Message queues
+- External payment gateways
+- Retries or compensation logic
+
+The goal is to establish correct orchestration and state transitions first.
+
+#### Booking → Payment Flow
+
+```txt
+CREATED booking
+   ↓
+initiatePayment()
+   ↓
+SUCCESS  → booking CONFIRMED
+FAILED   → booking remains CREATED
+EXPIRED  → confirmation blocked
+```
+
+- Payment is initiated only for `CREATED` bookings
+- Booking is confirmed only on payment success
+- Failed payments do not cancel or expire the booking
+- Expiry remains system-driven
+
+#### Confirm Booking API
+
+`POST /bookings/{id}/confirm`
+
+Behaviour:
+- Enforces expiry before payment
+- Prevents confirmation of expired bookings
+- Initiates payment synchronously
+- Is idempotent for already confirmed bookings
+
+#### Cancellation vs Expiry vs Payment Failure
+
+| **Scenario**          | **Inventory** | **Refund**   | **Trigger** |
+|-----------------------|---------------|--------------|-------------|
+| CONFIRMED → CANCELLED | Released      | Yes (future) | User        |
+| EXPIRED               | Released      | No           | System      |
+| PAYMENT FAILED        | Held          | No           | User retry  |
+
+This separation ensures:
+- Clean refund logic later
+- Correct financial semantics
+- Accurate lifecycle modeling
 
 ---
