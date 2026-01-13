@@ -3,8 +3,10 @@ package com.booking.platform.service;
 import com.booking.platform.domain.PaymentStatus;
 import com.booking.platform.entity.PaymentEntity;
 import com.booking.platform.repository.PaymentRepository;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Service
 public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;

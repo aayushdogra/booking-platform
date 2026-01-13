@@ -45,7 +45,7 @@ public class BookingController {
         return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/bookings/{id}/confirm")
+    @PostMapping("/{id}/confirm")
     public BookingResponse confirm(@PathVariable Long id) {
         return bookingService.confirmBooking(id);
     }
