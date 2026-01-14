@@ -6,14 +6,19 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "payments")
+@Table(
+        name = "payments",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"booking_id"})
+        }
+)
 public class PaymentEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "booking_id", nullable = false)
     private Long bookingId;
 
     @Enumerated(EnumType.STRING)
@@ -23,16 +28,16 @@ public class PaymentEntity {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = Instant.now();
+    }
+
     protected PaymentEntity() {}
 
     public PaymentEntity(Long bookingId) {
         this.bookingId = bookingId;
         this.status = PaymentStatus.INITIATED;
-    }
-
-    @PrePersist
-    protected void onCreate() {
-        this.createdAt = Instant.now();
     }
 
     public void markSuccess() {
