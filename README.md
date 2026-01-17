@@ -5,7 +5,7 @@ Building a production-style, Agoda-inspired booking backend using **Java 21 + Sp
 This project demonstrates **real-world backend engineering concepts** including clean architecture,
 domain-driven design, persistence, transactional correctness & consistency, lifecycle management, 
 idempotency, availability modeling, optimistic locking with bounded retries, time-bound booking holds 
-with expiry and synchronous payment confirmation flows.
+with expiry, synchronous payment confirmation, and the **foundations of event-driven system evolution**.
 
 The system is intentionally evolved in phases to mirror how real booking systems are built in production.
 
@@ -24,6 +24,8 @@ The system is intentionally evolved in phases to mirror how real booking systems
 - Time-bound booking holds with expiry
 - Synchronous payment orchestration
 - Clear separation of system-driven vs user-driven actions
+- - Explicit domain event modeling
+- Event emission without premature asynchronous processing
 
 ---
 
@@ -44,6 +46,9 @@ DTOs
 - DTOs are API contracts
 - Transactions live at the service layer
 - State transitions are explicit and validated
+- - Domains emit facts via immutable events
+- Event producers are decoupled from consumers
+- Asynchronous behavior is introduced incrementally, never prematurely
 
 ---
 
@@ -71,7 +76,14 @@ com.booking.platform
 │
 ├── controller
 │   ├── BookingController.java        
-│   └── HealthController.java         
+│   └── HealthController.java 
+│
+├── event
+│   ├── PaymentEvent.java
+│   ├── PaymentSucceededEvent.java
+│   ├── PaymentFailedEvent.java
+│   ├── EventPublisher.java
+│   └── InMemoryEventPublisher.java        
 │
 ├── service
 │   ├── BookingService.java
@@ -660,5 +672,128 @@ This separation ensures:
 - Clean refund logic later
 - Correct financial semantics
 - Accurate lifecycle modeling
+
+---
+
+### 24. Event-Driven Evolution (Phase 5)
+
+The booking platform is now evolving toward an **event-driven architecture**, starting with 
+**payment events**.
+
+This phase intentionally introduces **event emission only**, without consumers or asynchronous processing, 
+to preserve correctness while establishing clean boundaries.
+
+---
+
+### 25. Payment Domain Events
+
+The payment subsystem now emits **immutable domain events** representing facts:
+
+#### Defined Events
+- `PaymentSucceededEvent`
+- `PaymentFailedEvent`
+
+#### Event Characteristics
+- Immutable
+- Side-effect free
+- Represent facts that already occurred
+- Carry minimal, stable payloads
+
+Event Payload
+
+```text
+bookingId
+paymentId
+occurredAt
+(optional) failure reason
+```
+
+Events do not contain:
+- Commands
+- Business logic
+- References to other domains
+
+This ensures events are safe to replay, duplicate, or deliver late in future phases.
+
+---
+
+### 26. Event Publisher Abstraction
+
+An event publisher abstraction was introduced to decouple the payment domain from messaging infrastructure.
+
+#### Publisher Interface
+
+```java
+public interface EventPublisher {
+  void publish(PaymentEvent event);
+}
+```
+
+#### Current Implementation
+- In-memory publisher
+- Logs emitted events
+- No async behavior
+- No consumers
+- No retries
+- Single JVM
+
+This mirrors how real systems introduce events before Kafka or RabbitMQ.
+
+---
+
+### 27. PaymentService as Event Producer
+
+`PaymentService` now acts as a **domain event producer**.
+
+#### Behavior
+- Payment result is decided synchronously
+- Payment entity is persisted
+- A corresponding event is emitted after state transition
+- Event emission happens inside the service transaction
+
+#### Why This Matters
+- Ensures emitted events represent committed domain facts
+- Preserves idempotency guarantees
+- Keeps booking flow unchanged
+
+#### What Was Explicitly Not Done
+- No async consumers
+- No background threads
+- No message brokers
+- No retries or DLQ
+- No BookingService changes
+
+This deliberate limitation prevents premature complexity.
+
+---
+
+### 28. Preserved System Invariants
+
+Despite introducing events, the following guarantees remain unchanged:
+
+- Booking lifecycle correctness
+- Inventory safety
+- Payment idempotency
+- Transactional boundaries
+- Deterministic failure semantics
+- Single source of truth in the database
+
+This confirms that the system can evolve **incrementally** without sacrificing correctness.
+
+### 29. Architecture After Phase 5 (Conceptual)
+```text
+    Controller
+    ↓
+    Service (Orchestration)
+    ↓
+    Repository
+    ↓
+    Database
+    ↓
+    Domain Event Emission
+```
+
+Events are currently emitted **synchronously and locally**, but are designed to be transparently migrated 
+to Kafka in later phases.
 
 ---
