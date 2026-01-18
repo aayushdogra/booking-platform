@@ -273,6 +273,23 @@ public class BookingServiceImpl implements BookingService {
         );
     }
 
+    @Override
+    @Transactional
+    public void confirmBookingFromPaymentEvent(Long id) {
+        BookingEntity booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Booking not found for payment event: " + id));
+
+        // Enforce expiry first
+        expireBookingIfNeeded(booking);
+
+        // Idempotency via state
+        if(booking.getStatus() != BookingStatus.CREATED)
+            return; // Confirmed / Cancelled / Expired -> No op
+
+        booking.changeStatus(BookingStatus.CONFIRMED);
+    }
+
     // Expiry
     @Transactional
     protected void expireBookingIfNeeded(BookingEntity booking) {
