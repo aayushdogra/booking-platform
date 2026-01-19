@@ -278,12 +278,13 @@ public class BookingServiceImpl implements BookingService {
     public void confirmBookingFromPaymentEvent(Long id) {
         BookingEntity booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Booking not found for payment event: " + id));
+                        "Booking not found with id: " + id));
 
         // Enforce expiry first
         expireBookingIfNeeded(booking);
 
         // Idempotency via state
+        // // Idempotency guard: safe against duplicate / late events
         if(booking.getStatus() != BookingStatus.CREATED)
             return; // Confirmed / Cancelled / Expired -> No op
 
