@@ -1,182 +1,99 @@
 # Booking Platform (Backend)
 
-Building a production-style, Agoda-inspired booking backend using **Java 21 + Spring Boot**.
+A production-style, Agoda-inspired booking backend built with **Java 21 + Spring Boot**.
 
-This project demonstrates **real-world backend engineering concepts** including clean architecture,
-domain-driven design, persistence, transactional correctness & consistency, lifecycle management, 
-idempotency, availability modeling, optimistic locking with bounded retries, time-bound booking holds 
-with expiry, synchronous payment confirmation, and the **foundations of event-driven system evolution
-through in-process domain events**.
-
-The system is intentionally evolved in phases to mirror how real booking systems are built in production.
+This project is designed as an **incrementally evolved backend system**, focusing on correctness first
+and introducing complexity only when justified. Each phase mirrors how real booking systems are
+built and hardened in production environments.
 
 ---
 
-## What This Project Already Demonstrates
+## Project Focus
 
-- Clean layered architecture
-- Domain-driven modeling
-- Explicit booking lifecycle & state machine
-- Idempotent write APIs
-- Transactional consistency
-- Availability as a first-class domain concept
-- Optimistic locking + bounded retries
+This codebase focuses on **engineering trade-offs**, not feature count.
+
+### Primary goals:
+
+- Strong domain boundaries
+- Correct lifecycle management
+- Inventory safety under concurrency
+- Idempotent write paths
 - Deterministic failure semantics
-- Time-bound booking holds with expiry
-- Synchronous payment orchestration
-- Clear separation of system-driven vs user-driven actions
-- Explicit domain event modeling
-- In-process event consumption with idempotent state transitions
-- Event-driven evolution without premature asynchronous infrastructure
+- Incremental transition from synchronous to event-driven flows
+
 ---
 
-## Current Architecture
+## High-Level Architecture
+
 ```txt 
 Controller  →  Service (Orchestration) →  Repository  →  Database
-↓            
-DTOs
-
+                            ↓            
+                       Domain Rules
 ```
-### Core Principles
-- Controllers are thin (HTTP-only)
-- Services orchestrate workflows
-- Availability logic is isolated
-- Payment logic is isolated
-- Repositories handle persistence only
-- Entities enforce domain rules
-- DTOs are API contracts
-- Transactions live at the service layer
+
+## Architectural Intent
+
+- Controllers are HTTP adapters only
+- Services orchestrate workflows and transactions
+- Domain entities enforce lifecycle invariants
+- Repositories are persistence-only
+- No cross-domain mutation
 - State transitions are explicit and validated
-- Domains emit facts via immutable events
-- Event producers are decoupled from consumers
-- Asynchronous behavior is introduced incrementally, never prematurely
-- Domain state is the primary idempotency guard for event consumption
+
+---
+
+## Core Concepts Implemented
+
+- Explicit booking lifecycle (`CREATED → CONFIRMED | CANCELLED | EXPIRED`)
+- Availability modeled as a first-class domain
+- Idempotent booking creation and cancellation
+- Time-bound booking holds with expiry
+- Optimistic locking with bounded retries
+- Synchronous payment confirmation
+- Domain events for payment outcomes
+- In-process event consumers with idempotent handling
+- Controlled retries at async boundaries
+
+This project intentionally avoids premature infrastructure such as Kafka, DLQs, or schedulers
+until correctness and ownership are clearly defined.
 
 ---
 
 ## Tech Stack
+
 - Java 21
 - Spring Boot 3.3.2
 - Spring Web
-- Spring Data JPA
-- Hibernate
+- Spring Data JPA / Hibernate
 - PostgreSQL
 - Jakarta Validation
 - Maven
 
 ---
 
-## Project Structure
+## Module Structure
 
 ```txt
 com.booking.platform
-│
-├── BookingPlatformApplication.java
-│
-├── config
-│   └── AvailabilityDataInitializer.java         
-│
-├── controller
-│   ├── BookingController.java        
-│   └── HealthController.java 
-│
-├── event
-│   ├── PaymentEvent.java
-│   ├── PaymentSucceededEvent.java
-│   ├── PaymentFailedEvent.java
-│   ├── EventPublisher.java
-│   ├── InMemoryEventPublisher.java
-│   └── consumer
-│       └── PaymentEventConsumer.java        
-│
-├── service
-│   ├── BookingService.java
-│   ├── BookingServiceImpl.java       
-│   ├── AvailabilityService.java      
-│   ├── AvailabilityServiceImpl.java  
-│   ├── HealthService.java
-│   ├── HealthServiceImpl.java
-│   ├── PaymentService.java
-│   └── PaymentServiceImpl.java
-│
-├── repository
-│   ├── AvailabilityRepository.java   
-│   ├── BookingRepository.java       
-│   └── PaymentRepository.java  
-│
-├── entity
-│   ├── BookingEntity.java            
-│   ├── PaymentEntity.java
-│   └── AvailabilityEntity.java       
-│
-├── model
-│   ├── CreateBookingRequest.java     
-│   ├── BookingDetailsResponse.java
-│   └── BookingResponse.java         
-│
-├── domain
-│   ├── Booking.java                  
-│   ├── BookingStatus.java            
-│   ├── Hotel.java
-│   ├── PaymentStatus.java            
-│   ├── Room.java
-│   ├── RoomType.java                 
-│   └── User.java
-│ 
-├── exception
-│   ├── ApiError.java
-│   ├── ConflictException.java
-│   ├── GlobalExceptionHandler.java
-│   ├── ResourceNotFoundException.java
-│   └── RetryExhaustedException.java
+├── controller        // HTTP layer
+├── service           // Orchestration & transactions
+├── domain            // Enums and domain concepts
+├── entity            // Persistence models with invariants
+├── repository        // Data access
+├── event             // Domain events & publisher
+│   └── consumer      // In-process async consumers
+├── model             // API DTOs
+├── exception         // Error handling
+└── config            // Dev-only setup
 ```
----
-
-## Implemented Features
-
-### 1. Health Endpoints
-`GET /health`, `GET /health/db`
-
-Used for:
-- liveness checks
-- database connectivity validation
-
-### 2. Booking Creation API (Write Path)
-`POST /bookings`
-
-#### Request Body
-```json
-{
-    "idempotencyKey": "abc-123",
-    "userName": "Aayush",
-    "hotelName": "Taj",
-    "roomType": "DELUXE",
-    "nights": 2
-}
-```
-
-#### Validation Rules
-- `idempotencyKey` → required
-- `userName` → required
-- `hotelName` → required
-- `roomType` → enum validated
-- `nights` >= 1
-
-Validation errors return structured responses.
 
 ---
 
-### 3. Booking Lifecycle (State Machine)
+## Booking Lifecycle
 
-#### Supported States
+Bookings are stateful and lifecycle-driven.
 
-```text
-CREATED    → booking created, inventory held
-CONFIRMED  → payment successful (future phase)
-CANCELLED  → user cancelled
-EXPIRED    → system timeout (no payment)
-```
-#### Allowed Transitions
+### Supported states:
 
 ```text
 CREATED → CONFIRMED
@@ -184,644 +101,82 @@ CREATED → CANCELLED
 CREATED → EXPIRED
 ```
 
-- `EXPIRED` and `CANCELLED` are terminal
-- Invalid transitions throw exceptions
-- Lifecycle rules live inside `BookingEntity`
-- This enforces domain correctness.
+### Rules:
+
+- Only valid transitions are allowed
+- Terminal states cannot be exited
+- Lifecycle enforcement lives inside BookingEntity
+- Expiry is system-driven
+- Cancellation is user-driven and idempotent
 
 ---
 
-### 4. Idempotent Booking Creation (Critical Feature)
+## Availability Model
 
-#### Why this matters
-Booking systems must tolerate:
-- retries
-- network failures
-- duplicate client requests
+Availability is modeled explicitly as:
 
-Without idempotency → duplicate bookings.
+`(hotel, roomType, date)`
 
-#### Implementation
-- Client sends `idempotencyKey`
-- Stored with unique DB constraint
-- Repository lookup prevents duplication 
 
-```java Optional<BookingEntity> findByIdempotencyKey(String key);```
+### Characteristics:
 
-#### Behaviour
-- If key exists → return existing booking
-- Otherwise → create new booking
-
-This guarantees: `Same request → same booking`
+- Quantity-based inventory
+- Optimistic locking via @Version
+- No derived availability
+- No negative inventory
+- Reservation and release are symmetric operations
 
 ---
 
-### 5. Availability Modeling
+## Idempotency Strategy
 
-Availability is modeled explicitly instead of being derived from bookings.
+Idempotency is enforced at multiple layers:
 
-`(hotelName, roomType, date)`
+- Booking creation via `idempotencyKey` (DB constraint + lookup)
+- Cancellation via booking state checks
+- Payments via one-payment-per-booking invariant
+- Event consumption via booking state
 
-Each row represents capacity for one day.
-
-#### AvailabilityEntity Fields
-
-- `hotelName`
-- `roomType`
-- `date`
-- `totalRooms`
-- `availableRooms`
-- `timestamps`
-
-Unique constraint ensures only one row per:
-
-`hotel + roomType + date`
+Domain state is the **primary idempotency guard**, not infrastructure.
 
 ---
 
-### 6. Availability Service
+## Payments & Events
 
-Availability logic is isolated into its own service.
+Payments are initiated synchronously and produce immutable domain events:
 
-#### Responsibilities
-- Fetch availability by key
-- Validate remaining capacity
-- Decrement availability
-- Persist changes
-
-#### Public contract
-```java void reserve(String hotelName, RoomType roomType, LocalDate date); ```
-
----
-
-### 7. Booking ↔ Availability Integration
-
-#### Transactional Flow
-
-```text
-BEGIN TRANSACTION
-  1. Check idempotency
-  2. Reserve availability
-  3. Create booking
-COMMIT
-```
-
-Implemented in `BookingServiceImpl` using `@Transactional`.
-
-#### Why this matters
-- Keeps business logic readable
-- Ensures atomic updates
-- Prevents partial writes
-- Mirrors real backend orchestration
-
----
-
-### 8. Current Concurrency Model (Intentional Limitation)
-
-The current implementation is correct but naive.
-
-#### Behavior
-- Uses default READ_COMMITTED isolation
-- Can suffer race conditions under heavy concurrency
-- Two requests may read the same availability before commit
-
-This is intentional and serves as the foundation for later improvements.
-
----
-
-### 9. Read APIs
-
-#### Get booking by ID
-
-`GET /bookings/{id}`
-
-Response: 
-
-```json
-{
-    "status": "CREATED",
-    "message": "Success",
-    "bookingId": 1
-}
-```
----
-
-#### Get bookings by user
-
-`GET /bookings?userName=Aayush`
-
-Response:
-
-```json
-[
-    {
-        "status": "CREATED",
-        "message": "Success",
-        "bookingId": 1
-    }
-]
-```
----
-
-## 10. BookingEntity (Persistence Model)
-
-### Fields
-- `id`
-- `userName`
-- `hotelName`
-- `roomType`
-- `nights`
-- `status`
-- `createdAt`
-- `updatedAt`
-- `idempotencyKey` (unique)
-
-### Responsibilities
-- Enforces valid state transitions 
-- Tracks timestamps 
-- Acts as source of truth for persistence
-
----
-
-## 11. Error Handling
-
-Centralized via `@RestControllerAdvice`.
-
-### Covered cases
-- Validation errors (`@Valid`)
-- Invalid enum values 
-- Illegal state transitions 
-- Generic server failures
-
-### Standard Error Format
-```json
-{
-    "timestamp": "...",
-    "status": 400,
-    "error": "Validation Failed",
-    "message": "...",
-    "path": "/bookings"
-}
-```
-## 12. Booking Cancellation (Write Path)
-
-### Cancel Booking API
-`POST /bookings/{id}/cancel`
-
-This endpoint allows a user to cancel an existing booking.
-
-#### Behaviour
-- Transitions booking state to `CANCELLED`
-- Releases reserved availability
-- Is idempotent (safe to call multiple times)
-- Returns success even if the booking was already `cancelled`
-
-#### Why this matters
-- Cancellation is a real-world requirement
-- Inventory must be returned to the pool
-- Destructive operations must be idempotent
-
-#### Transactional Cancellation Flow
-```txt
-BEGIN TRANSACTION
-1. Fetch booking by ID
-2. If already CANCELLED → return success
-3. Transition booking state to CANCELLED
-4. Release availability
-   COMMIT
-```
-
-Implemented in `BookingServiceImpl` using `@Transactional`.
-
-This ensures:
-- Booking state and inventory are updated atomically
-- Partial updates cannot occur
-- System invariants are preserved
-
----
-
-## 13. Availability Release (Inventory Symmetry)
-
-Availability release is implemented as the inverse of reservation.
-
-### Inventory Operations
-```text
-reserve() → availableRooms--
-release() → availableRooms++
-```
-
-### Domain Enforcement
-- Inventory cannot go below zero
-- Inventory cannot exceed total capacity
-
-These invariants are enforced inside `AvailabilityEntity`.
-
-This symmetry ensures:
-- Correct behavior during cancellations
-- Inventory consistency over time
-
----
-
-## 14. Idempotent Cancellation Semantics
-
-Cancellation is designed to be idempotent.
-
-#### Behaviour
-- Cancelling an already `cancelled` booking:
-    - Does not throw an error 
-    - Does not release availability again 
-    - Returns a successful response
-
-This protects the system against:
-- Client retries
-- Duplicate requests
-- Concurrent cancellation attempts
-
----
-
-## 15. Concurrency Awareness (Documented, Not Yet Fixed)
-
-Both reservation and release follow a read–modify–write pattern.
-
-### Known Limitations
-- Multiple concurrent transactions can read the same availability
-- Default isolation level is `READ_COMMITTED`
-- Race conditions are possible under high concurrency
-
-These limitations are explicitly documented in code.
-
-The system is:
-- Correct under low concurrency
-- Intentionally naive as a foundation for later improvements
-
----
-
-## 16. Dev-Only Availability Seeding
-
-To support local development and testing, availability is pre-seeded in development mode.
-
-### Characteristics
-- Runs only under the `dev` profile
-- Seeds availability for known hotels, room types, and dates
-- Does not run in production
-- Does not affect booking or availability logic
-
-#### This avoids:
-- Manual database inserts during development
-- Polluting core domain logic with test behavior
-
----
-
-## 17. Clear Separation of Read vs Write Paths
-
-### Read Paths
- - `GET /bookings/{id}`
-- `GET /bookings?userName=...`
-
-#### Characteristics:
-- Non-transactional
-- Side-effect free
-- Lightweight and scalable
-
-### Write Paths
-- `POST /bookings`
-- `POST /bookings/{id}/cancel`
-
-#### Characteristics:
-- Transactional
-- Enforce domain invariants
-- Mutate multiple entities atomically
-
-This separation mirrors real production backend systems.
-
----
-
-## 18. Optimistic Locking (Concurrency Control)
-
-Availability updates use **optimistic locking** to detect concurrent write conflicts.
-
-### Implementation
-
-- AvailabilityEntity includes a version field:
-```java
-@Version
-private Long version;
-```
-- Every availability update is guarded by a version check at the database level.
-- If another transaction modifies the same row before commit, the update fails.
-
-This prevents **lost updates and silent overbooking**.
-
----
-
-## 19. Observed Concurrency Failure Mode (Verified)
-
-Concurrent booking requests against the same availability row were tested using parallel requests.
-
-### Observed Behavior
-- One booking succeeds 
-- One booking fails with a concurrency conflict 
-- Inventory is decremented exactly once 
-- Version increments exactly once 
-- No data corruption occurs
-
-### API Response on Conflict
-
-```json
-{
-  "status": 409,
-  "error": "Concurrency Conflict",
-  "message": "Resource was modified by another request. Please retry.",
-  "path": "/bookings"
-}
-```
-
-This failure mode is intentional and desirable.
-
----
-## 20. Retry Logic for Optimistic Locking
-
-To improve success rates under concurrent writes, booking creation is wrapped in a **bounded retry mechanism**.
-
-### Implementation
-- Booking creation is retried on optimistic locking failures
-- Retries are bounded (max retries = 3)
-- Each retry runs in a fresh transaction
-- Retries are applied only for concurrency conflicts
-
-Retry logic lives in the **service orchestration layer**, not in controllers or repositories.
-
-This ensures:
-- Correctness is preserved
-- Transient conflicts are resolved automatically
-- The system does not overload itself under contention
-
----
-
-## 21. Failure Semantics Under Concurrency
-
-The booking system exposes clear and **deterministic failure behavior** under load.
-
-### Verified Behaviors
-
-#### a) Transient contention
-- Concurrent requests may initially conflict
-- Retries resolve conflicts when capacity allows
-- Booking succeeds without client involvement
-
-#### b) Sustained contention (retry exhaustion)
-- When conflicts persist beyond retry limit
-- Booking fails cleanly with HTTP 409 Conflict
-
-```json
-{
-  "status": 409,
-  "error": "Concurrency Conflict",
-  "message": "Booking could not be completed due to high contention. Please retry."
-}
-```
-
-#### c) Capacity exhaustion
-- When no rooms remain
-- Booking fails with HTTP 409 Conflict
-- Inventory is never over-decremented
-
-```json
-{
-  "status": 409,
-  "error": "Conflict",
-  "message": "No rooms available for given date"
-}
-```
-#### d) Idempotent retries
-- Duplicate requests with the same idempotency key
-- Return the original booking
-- Do not mutate availability again
-
----
-
-### 22. Time-Bound Booking Holds (Phase 3)
-
-#### Why Booking Expiry Exists
-
-In real systems:
-- Users abandon checkout
-- Payments fail
-- Tabs close
-
-Without expiry:
-- Inventory gets locked forever
-- Business loses sellable capacity
-
-Hold Model
-- Bookings start in CREATED
-- Inventory is reserved immediately
-- A hold window (e.g. 15 minutes) is applied
-- If payment is not completed → booking EXPIRES
-
-Expiry is a **one-time transition:**
-
-`CREATED → EXPIRED`
-
----
-
-### 23. Synchronous Payments
-
-Introduced **payment confirmation** into the booking lifecycle using a simple, **synchronous flow**.
-
-This phase intentionally avoids:
-- Async processing
-- Message queues
-- External payment gateways
-- Retries or compensation logic
-
-The goal is to establish correct orchestration and state transitions first.
-
-#### Booking → Payment Flow
-
-```txt
-CREATED booking
-   ↓
-initiatePayment()
-   ↓
-SUCCESS  → booking CONFIRMED
-FAILED   → booking remains CREATED
-EXPIRED  → confirmation blocked
-```
-
-- Payment is initiated only for `CREATED` bookings
-- Booking is confirmed only on payment success
-- Failed payments do not cancel or expire the booking
-- Expiry remains system-driven
-
-#### Confirm Booking API
-
-`POST /bookings/{id}/confirm`
-
-Behaviour:
-- Enforces expiry before payment
-- Prevents confirmation of expired bookings
-- Initiates payment synchronously
-- Is idempotent for already confirmed bookings
-
-#### Cancellation vs Expiry vs Payment Failure
-
-| **Scenario**          | **Inventory** | **Refund**   | **Trigger** |
-|-----------------------|---------------|--------------|-------------|
-| CONFIRMED → CANCELLED | Released      | Yes (future) | User        |
-| EXPIRED               | Released      | No           | System      |
-| PAYMENT FAILED        | Held          | No           | User retry  |
-
-This separation ensures:
-- Clean refund logic later
-- Correct financial semantics
-- Accurate lifecycle modeling
-
----
-
-### 24. Event-Driven Evolution (Phase 5)
-
-The booking platform is now evolving toward an **event-driven architecture**, starting with 
-**payment events and in-process consumption**.
-
-This phase intentionally introduces:
-- Event emission from the payment domain
-- A synchronous, in-memory event consumer
-- No external messaging infrastructure
-- No retries or DLQ
-
-The goal is to **prove correctness, idempotency, and lifecycle safety** 
-before introducing real async behaviour.
-
----
-
-### 25. Payment Domain Events
-
-The payment subsystem now emits **immutable domain events** representing facts that already occurred.
-
-#### Defined Events
 - `PaymentSucceededEvent`
 - `PaymentFailedEvent`
 
-#### Event Characteristics
-- Immutable
-- Side-effect free
-- Represent facts that already occurred
-- Carry minimal, stable payloads
+### Current behavior:
 
-Event Payload
+- Events are emitted after payment state is finalized
+- Events are consumed in-process
+- Consumers are single-threaded
+- Consumers are idempotent
+- Retries are bounded and applied only to transient failures
 
-```text
-bookingId
-paymentId
-occurredAt
-(optional) failure reason
-```
-
-Events intentionally do not contain:
-- Commands
-- Business logic
-- References to other domains
-
-This ensures events are safe to replay, duplicate, or deliver late in future async phases.
+This establishes a safe foundation for later async infrastructure.
 
 ---
 
-### 26. Event Publisher & Consumer
+## Failure & Retry Semantics
 
-An event publisher abstraction decouples the payment domain from messaging infrastructure.
+- Business-rule violations are **never retried**
+- Transient failures (DB, contention) are retried
+- Retries are bounded
+- Backoff is applied
+- Retry logic lives at async boundaries, not in domain logic
 
-#### Publisher Interface
-
-```java
-public interface EventPublisher {
-  void publish(PaymentEvent event);
-}
-```
-
-#### Current Implementation
-- In-memory publisher
-- Synchronous delivery
-- Single JVM
-- Single thread
-- No retries
-- No DLQ
-
-The publisher directly invokes an in-process event consumer, 
-simulating how Kafka consumers will behave later.
+DLQ and broker-backed delivery are intentionally deferred.
 
 ---
 
-### 27. Payment Event Consumer
+## Development Notes
 
-A dedicated **payment event consumer** reacts to payment outcomes.
-
-#### Responsibilities
-- Consume payment events
-- React only to `PaymentSucceededEvent`
-- Confirm bookings idempotently
-- Ignore failures and duplicates safely
-
-#### Design Rules
-- Consumer never initiates payment
-- Consumer never mutates availability
-- Consumer relies on booking state for idempotency
-- Late or duplicate events are safely ignored
-
-This mirrors real async consumers while remaining fully deterministic.
-
----
-
-### 28. Booking Confirmation via Events (Idempotent)
-
-Booking confirmation can now occur via **payment events**, independent of HTTP APIs.
-
-#### Confirmation Rules
-- `CREATED` → confirmed on success event
-- `CONFIRMED` → ignored
-- `EXPIRED` → ignored
-- `CANCELLED` → ignored
-
-Idempotency is enforced **via booking state**, not event deduplication tables (added later).
-
-This ensures:
-- No double confirmation
-- No confirmation after expiry
-- Safe duplicate event handling
-
----
-
-### 29. Preserved System Invariants
-
-Despite introducing event consumption, the following guarantees remain unchanged:
-
-- Booking lifecycle correctness
-- Inventory safety
-- Payment idempotency
-- Transactional boundaries
-- Deterministic failure semantics
-- Single source of truth in the database
-
-Both synchronous and event-driven confirmation paths coexist intentionally.
-This enables **incremental migration** without sacrificing correctness.
-
-### 30. Architecture After Phase 5 (Conceptual)
-
-```text
-    Controller
-        ↓
-    Service (Orchestration)
-        ↓
-    Repository
-        ↓
-    Database
-        ↓
-    Domain Event Emission
-        ↓
-    In-Process Event Consumer
-```
-
-Event delivery is currently **synchronous and local**, but the consumer boundary is designed
-to be replaced transparently by Kafka listeners in later phases.
+- Availability is pre-seeded under the dev profile
+- Read paths are side-effect free
+- Write paths are transactional
+- All concurrency behavior is explicit and documented
 
 ---
