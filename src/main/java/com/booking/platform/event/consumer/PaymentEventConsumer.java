@@ -3,10 +3,12 @@ package com.booking.platform.event.consumer;
 import com.booking.platform.event.PaymentEvent;
 import com.booking.platform.event.PaymentSucceededEvent;
 import com.booking.platform.event.PaymentFailedEvent;
+import com.booking.platform.event.dlq.DeadLetterEvent;
+import com.booking.platform.event.dlq.DeadLetterStore;
 import com.booking.platform.service.BookingService;
-import org.springframework.dao.TransientDataAccessResourceException;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
+
+import java.time.Instant;
 
 @Component
 public class PaymentEventConsumer {
@@ -15,15 +17,17 @@ public class PaymentEventConsumer {
     private static final long BACKOFF_MS = 200;
 
     private final BookingService bookingService;
+    private final DeadLetterStore deadLetterStore;
 
-    public PaymentEventConsumer(BookingService bookingService) {
+    public PaymentEventConsumer(BookingService bookingService, DeadLetterStore deadLetterStore) {
         this.bookingService = bookingService;
+        this.deadLetterStore = deadLetterStore;
     }
 
     public void consume(PaymentEvent event) {
 
         if(event instanceof PaymentSucceededEvent successEvent) {
-            handleWithRetry(successEvent.bookingId());
+            handleWithRetry(successEvent);
         }
 
         if(event instanceof PaymentFailedEvent failedEvent) {
@@ -32,25 +36,50 @@ public class PaymentEventConsumer {
         }
     }
 
-    private void handleWithRetry(Long bookingId) {
+    private void handleWithRetry(PaymentSucceededEvent event) {
         int attempt = 0;
 
         while (attempt < MAX_RETRIES) {
             try {
                 attempt++;
 
-                bookingService.confirmBookingFromPaymentEvent(bookingId);
+                bookingService.confirmBookingFromPaymentEvent(event.bookingId());
                 return; // success or safe no-op
-            } catch (ObjectOptimisticLockingFailureException | TransientDataAccessResourceException ex) {
+
+            } catch (Exception ex) {
+
+                RetryDecision decision = RetryClassifier.classify(ex);
+
+                // Non-retryable -> immediate DLQ
+                if (decision == RetryDecision.NON_RETRYABLE) {
+                    deadLetterStore.save(
+                            new DeadLetterEvent(
+                                    event,
+                                    attempt,
+                                    "NON_RETRYABLE",
+                                    ex.getMessage(),
+                                    Instant.now()
+                            )
+                    );
+
+                    return;
+                }
+
                 // Retryable failure
                 backoff(attempt);
-            } catch (Exception ex) {
-                // Non-retryable (business or unexpected)
-                return;
             }
         }
 
-        // Retry exhausted -> DLQ later
+        // Retry exhausted -> DLQ
+        deadLetterStore.save(
+                new DeadLetterEvent(
+                        event,
+                        MAX_RETRIES,
+                        "RETRY_EXHAUSTED",
+                        "Max retries exceeded",
+                        Instant.now()
+                )
+        );
     }
 
     private void backoff(int attempt) {
