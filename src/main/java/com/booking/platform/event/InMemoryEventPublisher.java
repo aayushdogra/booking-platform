@@ -1,23 +1,28 @@
 package com.booking.platform.event;
 
-import com.booking.platform.event.consumer.PaymentEventConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class InMemoryEventPublisher implements EventPublisher {
 
     private static final Logger LOG = LoggerFactory.getLogger(InMemoryEventPublisher.class);
-    private final PaymentEventConsumer consumer;
 
-    public InMemoryEventPublisher(PaymentEventConsumer consumer) {
-        this.consumer = consumer;
+    private final List<DomainEventConsumer> consumers;
+
+    public InMemoryEventPublisher(List<DomainEventConsumer> consumers) {
+        this.consumers = consumers;
     }
 
     @Override
-    public void publish(PaymentEvent event) {
+    public void publish(DomainEvent event) {
         LOG.info("EVENT EMITTED: {}", event);
-        consumer.consume(event); // synchronous, single-threaded
+
+        for(DomainEventConsumer consumer : consumers) {
+            consumer.consume(event);
+        }
     }
 }

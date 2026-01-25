@@ -1,17 +1,16 @@
 package com.booking.platform.event.consumer;
 
-import com.booking.platform.event.PaymentEvent;
-import com.booking.platform.event.PaymentSucceededEvent;
-import com.booking.platform.event.PaymentFailedEvent;
+import com.booking.platform.event.*;
 import com.booking.platform.event.dlq.DeadLetterEvent;
 import com.booking.platform.event.dlq.DeadLetterStore;
 import com.booking.platform.service.BookingService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
 @Component
-public class PaymentEventConsumer {
+public class PaymentEventConsumer implements DomainEventConsumer {
 
     private static final int MAX_RETRIES = 3;
     private static final long BACKOFF_MS = 200;
@@ -19,12 +18,13 @@ public class PaymentEventConsumer {
     private final BookingService bookingService;
     private final DeadLetterStore deadLetterStore;
 
-    public PaymentEventConsumer(BookingService bookingService, DeadLetterStore deadLetterStore) {
+    public PaymentEventConsumer(@Lazy BookingService bookingService, DeadLetterStore deadLetterStore) {
         this.bookingService = bookingService;
         this.deadLetterStore = deadLetterStore;
     }
 
-    public void consume(PaymentEvent event) {
+    @Override
+    public void consume(DomainEvent event) {
 
         if(event instanceof PaymentSucceededEvent successEvent) {
             handleWithRetry(successEvent);
@@ -52,6 +52,7 @@ public class PaymentEventConsumer {
 
                 // Non-retryable -> immediate DLQ
                 if (decision == RetryDecision.NON_RETRYABLE) {
+
                     deadLetterStore.save(
                             new DeadLetterEvent(
                                     event,

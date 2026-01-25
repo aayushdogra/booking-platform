@@ -19,7 +19,8 @@ This codebase focuses on **engineering trade-offs**, not feature count.
 - Inventory safety under concurrency
 - Idempotent write paths
 - Deterministic failure semantics
-- Incremental transition from synchronous to event-driven flows
+- Controlled sync → async evolution
+- Safe retry & DLQ boundaries
 
 ---
 
@@ -29,6 +30,8 @@ This codebase focuses on **engineering trade-offs**, not feature count.
 Controller  →  Service (Orchestration) →  Repository  →  Database
                             ↓            
                        Domain Rules
+                            ↓
+                    In-Process Consumers
 ```
 
 ## Architectural Intent
@@ -39,23 +42,23 @@ Controller  →  Service (Orchestration) →  Repository  →  Database
 - Repositories are persistence-only
 - No cross-domain mutation
 - State transitions are explicit and validated
+- Events represent facts, not commands
+- Domain state is the primary idempotency guard
 
 ---
 
 ## Core Concepts Implemented
 
 - Explicit booking lifecycle (`CREATED → CONFIRMED | CANCELLED | EXPIRED`)
-- Availability modeled as a first-class domain
+- Availability as a first-class domain
 - Idempotent booking creation and cancellation
 - Time-bound booking holds with expiry
 - Optimistic locking with bounded retries
-- Synchronous payment confirmation
-- Domain events for payment outcomes
-- In-process event consumers with idempotent handling
-- Controlled retries at async boundaries
-
-This project intentionally avoids premature infrastructure such as Kafka, DLQs, or schedulers
-until correctness and ownership are clearly defined.
+- Payment idempotency
+- Domain events for payment flow
+- In-process async boundary simulation
+- Controlled retries at event consumers
+- Dead Letter Queue (in-memory design)
 
 ---
 
@@ -81,7 +84,8 @@ com.booking.platform
 ├── entity            // Persistence models with invariants
 ├── repository        // Data access
 ├── event             // Domain events & publisher
-│   └── consumer      // In-process async consumers
+│   ├── consumer      // Async boundary (in-process)
+│   └── dlq           // Dead-letter abstractions
 ├── model             // API DTOs
 ├── exception         // Error handling
 └── config            // Dev-only setup
@@ -141,34 +145,82 @@ Domain state is the **primary idempotency guard**, not infrastructure.
 
 ---
 
-## Payments & Events
+## Payments & Async Boundary
 
-Payments are initiated synchronously and produce immutable domain events:
+Payments now cross an explicit async boundary.
 
-- `PaymentSucceededEvent`
-- `PaymentFailedEvent`
+```text
+POST /confirm
+    ↓
+PaymentRequestedEvent
+    ↓
+PaymentRequestConsumer
+    ↓
+PaymentService
+    ↓
+PaymentSucceeded / PaymentFailed
+    ↓
+PaymentEventConsumer (retry + DLQ)
+    ↓
+Booking confirmation
+```
 
-### Current behavior:
+### Characteristics:
 
-- Events are emitted after payment state is finalized
-- Events are consumed in-process
-- Consumers are single-threaded
-- Consumers are idempotent
-- Retries are bounded and applied only to transient failures
-
-This establishes a safe foundation for later async infrastructure.
+- Event delivery is synchronous (single JVM)
+- No broker yet
+- Consumer logic is isolated
+- Booking confirmation is idempotent
+- Async boundary is architecturally defined
+- This establishes a safe foundation for later async infrastructure.
 
 ---
 
-## Failure & Retry Semantics
+## Retry & DLQ Semantics
 
-- Business-rule violations are **never retried**
-- Transient failures (DB, contention) are retried
-- Retries are bounded
-- Backoff is applied
-- Retry logic lives at async boundaries, not in domain logic
+Retries are controlled and scoped.
 
-DLQ and broker-backed delivery are intentionally deferred.
+### Retry Rules
+Retryable:
+- Optimistic locking failures
+- Transient DB issues
+
+Non-retryable:
+- Invalid booking state
+- Business rule violations
+
+### Implementation
+- Bounded retries (max 3)
+- Linear backoff
+- Retry classification
+- Consumer-level retry only
+
+Retry logic does NOT live in domain services.
+
+---
+
+## Dead Letter Queue (Design Phase)
+
+DLQ is introduced conceptually and in-memory.
+
+DLQ is triggered when:
+- Non-retryable exception occurs
+- Retry exhaustion happens
+
+Stored metadata:
+- Original event
+- Retry count
+- Failure type
+- Error message
+- Timestamp
+
+DLQ is for processing failures, not business outcomes.
+
+Example:
+- `PaymentFailedEvent` is NOT DLQ.
+- Consumer crash after `PaymentSucceededEvent` IS DLQ candidate.
+
+Persistence-backed DLQ is intentionally deferred.
 
 ---
 

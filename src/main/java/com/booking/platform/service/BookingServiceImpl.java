@@ -3,6 +3,8 @@ package com.booking.platform.service;
 import com.booking.platform.domain.BookingStatus;
 import com.booking.platform.domain.PaymentStatus;
 import com.booking.platform.entity.BookingEntity;
+import com.booking.platform.event.EventPublisher;
+import com.booking.platform.event.PaymentRequestedEvent;
 import com.booking.platform.exception.ConflictException;
 import com.booking.platform.exception.ResourceNotFoundException;
 import com.booking.platform.exception.RetryExhaustedException;
@@ -25,13 +27,19 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final AvailabilityService availabilityService;
     private final PaymentService paymentService;
+    private final EventPublisher  eventPublisher;
 
     private static final int MAX_RETRIES = 3;
 
-    public BookingServiceImpl(BookingRepository bookingRepository, AvailabilityService availabilityService, PaymentService  paymentService) {
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            AvailabilityService availabilityService,
+            PaymentService  paymentService,
+            EventPublisher eventPublisher) {
         this.bookingRepository = bookingRepository;
         this.availabilityService = availabilityService;
         this.paymentService = paymentService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -256,19 +264,12 @@ public class BookingServiceImpl implements BookingService {
             return mapToResponse(booking);
         }
 
-        // 2. Initiate payment
-        PaymentStatus paymentStatus = paymentService.initiatePayment(id);
+        // PHASE 7: Emit async payment request
+        eventPublisher.publish(new PaymentRequestedEvent(id, Instant.now()));
 
-        // 3. Act on payment result
-        if(paymentStatus == PaymentStatus.SUCCESS) {
-            booking.changeStatus(BookingStatus.CONFIRMED);
-            return mapToResponse(booking);
-        }
-
-        // FAILURE -> booking stays CREATED until EXPIRED
         return new BookingResponse(
                 BookingStatus.CREATED.name(),
-                "Payment failed, booking not confirmed",
+                "Payment requested asynchronously",
                 booking.getId()
         );
     }
