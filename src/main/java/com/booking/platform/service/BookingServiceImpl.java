@@ -284,10 +284,24 @@ public class BookingServiceImpl implements BookingService {
         // Enforce expiry first
         expireBookingIfNeeded(booking);
 
-        // Idempotency via state
-        // // Idempotency guard: safe against duplicate / late events
-        if(booking.getStatus() != BookingStatus.CREATED)
-            return; // Confirmed / Cancelled / Expired -> No op
+        BookingStatus status = booking.getStatus();
+
+        // Idempotency guard: safe against duplicate / late events
+        if (status == BookingStatus.CONFIRMED) {
+            return;
+        }
+
+        if (status == BookingStatus.CANCELLED) {
+            return;
+        }
+
+        if (status == BookingStatus.EXPIRED) {
+            return;
+        }
+
+        if (status != BookingStatus.CREATED) {
+            return;
+        }
 
         booking.changeStatus(BookingStatus.CONFIRMED);
     }
