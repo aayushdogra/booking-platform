@@ -1,7 +1,6 @@
 package com.booking.platform.service;
 
 import com.booking.platform.domain.BookingStatus;
-import com.booking.platform.domain.PaymentStatus;
 import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.event.EventPublisher;
 import com.booking.platform.event.PaymentRequestedEvent;
@@ -26,7 +25,6 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final AvailabilityService availabilityService;
-    private final PaymentService paymentService;
     private final EventPublisher  eventPublisher;
 
     private static final int MAX_RETRIES = 3;
@@ -34,11 +32,9 @@ public class BookingServiceImpl implements BookingService {
     public BookingServiceImpl(
             BookingRepository bookingRepository,
             AvailabilityService availabilityService,
-            PaymentService  paymentService,
             EventPublisher eventPublisher) {
         this.bookingRepository = bookingRepository;
         this.availabilityService = availabilityService;
-        this.paymentService = paymentService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -287,18 +283,6 @@ public class BookingServiceImpl implements BookingService {
         BookingStatus status = booking.getStatus();
 
         // Idempotency guard: safe against duplicate / late events
-        if (status == BookingStatus.CONFIRMED) {
-            return;
-        }
-
-        if (status == BookingStatus.CANCELLED) {
-            return;
-        }
-
-        if (status == BookingStatus.EXPIRED) {
-            return;
-        }
-
         if (status != BookingStatus.CREATED) {
             return;
         }

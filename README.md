@@ -1,26 +1,31 @@
 # Booking Platform (Backend)
 
-A production-style, Agoda-inspired booking backend built with **Java 21 + Spring Boot**.
+A backend architecture exploration inspired by real-world booking systems, built with **Java 21 + Spring Boot**.
 
-This project is designed as an **incrementally evolved backend system**, focusing on correctness first
-and introducing complexity only when justified. Each phase mirrors how real booking systems are
-built and hardened in production environments.
+This project intentionally evolves from a simple synchronous flow into a controlled, event-driven system.
+It prioritizes **correctness, lifecycle integrity, and architectural clarity** over feature breadth.
+
+This is not a production-ready SaaS product.
+It is an intentionally incremental backend design exercise.
 
 ---
 
-## Project Focus
+## Project Intent
 
-This codebase focuses on **engineering trade-offs**, not feature count.
+This repository demonstrates backend evolution patterns:
+- From synchronous correctness
+- To concurrency safety
+- To event-driven coordination
+- To bounded retries and failure isolation
 
-### Primary goals:
+The goal is to explore how systems grow in complexity responsibly, not to simulate a full booking product.
 
-- Strong domain boundaries
-- Correct lifecycle management
-- Inventory safety under concurrency
-- Idempotent write paths
-- Deterministic failure semantics
-- Controlled sync → async evolution
-- Safe retry & DLQ boundaries
+This project focuses on:
+- Domain-driven lifecycle modeling
+- Deterministic state transitions
+- Inventory correctness under contention
+- Explicit async boundary design
+- Failure classification and retry isolation
 
 ---
 
@@ -43,22 +48,24 @@ Controller  →  Service (Orchestration) →  Repository  →  Database
 - No cross-domain mutation
 - State transitions are explicit and validated
 - Events represent facts, not commands
-- Domain state is the primary idempotency guard
+- Idempotency is primarily enforced via domain state
 
 ---
 
-## Core Concepts Implemented
+## System Evolution Approach
 
-- Explicit booking lifecycle (`CREATED → CONFIRMED | CANCELLED | EXPIRED`)
-- Availability as a first-class domain
-- Idempotent booking creation and cancellation
-- Time-bound booking holds with expiry
-- Optimistic locking with bounded retries
-- Payment idempotency
-- Domain events for payment flow
-- In-process async boundary simulation
-- Controlled retries at event consumers
-- Dead Letter Queue (in-memory design)
+The architecture evolved in phases:
+- Baseline synchronous flow
+- Optimistic locking for availability safety
+- Time-bound booking holds
+- Idempotent payment modeling
+- Introduction of domain events
+- Async boundary within a single JVM
+- Consumer-level retry and DLQ design
+
+Each phase introduces one complexity dimension at a time.
+
+The system remains intentionally single-process and single-database.
 
 ---
 
@@ -107,11 +114,13 @@ CREATED → EXPIRED
 
 ### Rules:
 
-- Only valid transitions are allowed
-- Terminal states cannot be exited
-- Lifecycle enforcement lives inside BookingEntity
+- Transitions are explicit
+- Terminal states are immutable
 - Expiry is system-driven
 - Cancellation is user-driven and idempotent
+- Confirmation occurs only via payment success event
+
+Lifecycle enforcement lives inside the aggregate.
 
 ---
 
@@ -125,7 +134,7 @@ Availability is modeled explicitly as:
 ### Characteristics:
 
 - Quantity-based inventory
-- Optimistic locking via @Version
+- Optimistic locking via `@Version`
 - No derived availability
 - No negative inventory
 - Reservation and release are symmetric operations
@@ -147,7 +156,7 @@ Domain state is the **primary idempotency guard**, not infrastructure.
 
 ## Payments & Async Boundary
 
-Payments now cross an explicit async boundary.
+Payments cross an explicit async boundary inside the JVM.
 
 ```text
 POST /confirm
@@ -160,75 +169,76 @@ PaymentService
     ↓
 PaymentSucceeded / PaymentFailed
     ↓
-PaymentEventConsumer (retry + DLQ)
+PaymentEventConsumer
     ↓
 Booking confirmation
 ```
 
 ### Characteristics:
 
-- Event delivery is synchronous (single JVM)
-- No broker yet
-- Consumer logic is isolated
-- Booking confirmation is idempotent
-- Async boundary is architecturally defined
-- This establishes a safe foundation for later async infrastructure.
+- Executor-based async dispatch
+- Separate transaction per consumer execution
+- Idempotent event handling
+- Explicit state guards
+- Controlled retry classification
+- In-memory DLQ design (non-durable)
+
+This simulates event-driven behavior without introducing distributed infrastructure.
 
 ---
 
-## Retry & DLQ Semantics
+## Retry & Failure Semantics
 
-Retries are controlled and scoped.
+Retries are scoped to event consumers only.
 
 ### Retry Rules
 Retryable:
-- Optimistic locking failures
-- Transient DB issues
+- Optimistic locking
+- Transient persistence issues
 
 Non-retryable:
-- Invalid booking state
-- Business rule violations
+- Invalid lifecycle transitions
+- Domain rule violations
 
-### Implementation
+### Properties
 - Bounded retries (max 3)
 - Linear backoff
-- Retry classification
-- Consumer-level retry only
+- Classification-based retry decisions
+- DLQ triggered only for processing failures
 
-Retry logic does NOT live in domain services.
+Domain services remain deterministic and free of retry logic.
 
 ---
 
-## Dead Letter Queue (Design Phase)
+## Dead Letter Queue (Conceptual)
 
-DLQ is introduced conceptually and in-memory.
+The DLQ is currently in-memory and design-focused.
 
-DLQ is triggered when:
-- Non-retryable exception occurs
-- Retry exhaustion happens
-
-Stored metadata:
+It stores:
 - Original event
 - Retry count
-- Failure type
+- Failure classification
 - Error message
 - Timestamp
 
-DLQ is for processing failures, not business outcomes.
+It exists to demonstrate:
+- Failure isolation
+- Retry exhaustion handling
+- Async processing control
 
-Example:
-- `PaymentFailedEvent` is NOT DLQ.
-- Consumer crash after `PaymentSucceededEvent` IS DLQ candidate.
-
-Persistence-backed DLQ is intentionally deferred.
+Durable persistence is intentionally deferred.
 
 ---
 
 ## Development Notes
 
-- Availability is pre-seeded under the dev profile
-- Read paths are side-effect free
-- Write paths are transactional
-- All concurrency behavior is explicit and documented
+- Single JVM
+- Single PostgreSQL database
+- Dev profile seeds availability
+- No external broker
+- No distributed tracing
+- No horizontal scaling assumptions
+
+This repository reflects an architectural journey, not a finished product.
 
 ---
