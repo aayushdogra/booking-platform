@@ -24,10 +24,17 @@ public class PaymentEventConsumer implements DomainEventConsumer {
     }
 
     @Override
+    public boolean supports(DomainEvent event) {
+        return event instanceof PaymentSucceededEvent
+                || event instanceof PaymentFailedEvent;
+    }
+
+    @Override
     public void consume(DomainEvent event) {
 
         if(event instanceof PaymentSucceededEvent successEvent) {
             handleWithRetry(successEvent);
+            return;
         }
 
         if(event instanceof PaymentFailedEvent failedEvent) {

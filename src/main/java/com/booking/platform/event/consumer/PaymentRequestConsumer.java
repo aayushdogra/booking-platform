@@ -23,4 +23,9 @@ public class PaymentRequestConsumer implements DomainEventConsumer {
             paymentService.initiatePayment(requested.bookingId());
         }
     }
+
+    @Override
+    public boolean supports(DomainEvent event) {
+        return event instanceof PaymentRequestedEvent;
+    }
 }
