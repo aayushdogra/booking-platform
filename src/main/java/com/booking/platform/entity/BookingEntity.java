@@ -83,10 +83,24 @@ public class BookingEntity {
     }
 
     private boolean  isValidTransition(BookingStatus from, BookingStatus to) {
+        if(from == to)
+            return true; // idempotent transition
+
         return switch (from) {
+
             case CREATED ->
-                    to == BookingStatus.CONFIRMED || to == BookingStatus.CANCELLED || to == BookingStatus.EXPIRED;
-            default -> false;
+                    to == BookingStatus.CONFIRMED
+                            || to == BookingStatus.CANCELLED
+                            || to == BookingStatus.EXPIRED;
+
+            case CONFIRMED -> to == BookingStatus.CANCELLED;
+
+            case CANCELLED -> to == BookingStatus.REFUND_PENDING;
+
+            case REFUND_PENDING  -> to == BookingStatus.REFUNDED;
+
+            case EXPIRED, REFUNDED ->
+                    false; // terminal states
         };
     }
 
