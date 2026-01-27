@@ -4,6 +4,7 @@ import com.booking.platform.domain.BookingStatus;
 import com.booking.platform.entity.BookingEntity;
 import com.booking.platform.event.EventPublisher;
 import com.booking.platform.event.PaymentRequestedEvent;
+import com.booking.platform.event.RefundRequestedEvent;
 import com.booking.platform.exception.ConflictException;
 import com.booking.platform.exception.ResourceNotFoundException;
 import com.booking.platform.exception.RetryExhaustedException;
@@ -199,8 +200,10 @@ public class BookingServiceImpl implements BookingService {
         // Expire first if needed
         expireBookingIfNeeded(booking);
 
+        BookingStatus currentStatus = booking.getStatus();
+
         // Expired bookings cancellation is not allowed
-        if (booking.getStatus() == BookingStatus.EXPIRED) {
+        if (currentStatus == BookingStatus.EXPIRED) {
             return new BookingResponse(
                     BookingStatus.EXPIRED.name(),
                     "Booking already expired and cannot be cancelled",
@@ -209,13 +212,16 @@ public class BookingServiceImpl implements BookingService {
         }
 
         // Idempotent cancellation
-        if (booking.getStatus() == BookingStatus.CANCELLED) {
+        if (currentStatus == BookingStatus.CANCELLED) {
             return new BookingResponse(
                     BookingStatus.CANCELLED.name(),
                     "Booking already cancelled",
                     booking.getId()
             );
         }
+
+        // Refund only applies to CONFIRMED bookings
+        boolean requiresRefund = currentStatus == BookingStatus.CONFIRMED;
 
         /*
          * State transition is enforced inside the entity.
@@ -235,9 +241,16 @@ public class BookingServiceImpl implements BookingService {
                         .toLocalDate()
         );
 
+        // emit refund event if needed
+        if(requiresRefund) {
+            eventPublisher.publish(new RefundRequestedEvent(booking.getId(), Instant.now()));
+        }
+
         return new BookingResponse(
                 BookingStatus.CANCELLED.name(),
-                "Booking cancelled successfully",
+                requiresRefund
+                        ? "Booking cancelled. Refund initiated."
+                        : "Booking cancelled successfully",
                 booking.getId()
         );
     }
