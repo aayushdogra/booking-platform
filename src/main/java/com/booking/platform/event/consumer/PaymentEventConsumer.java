@@ -4,10 +4,12 @@ import com.booking.platform.event.*;
 import com.booking.platform.event.dlq.DeadLetterEvent;
 import com.booking.platform.event.dlq.DeadLetterStore;
 import com.booking.platform.service.BookingService;
+import com.booking.platform.service.RedisCoordinatorService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.time.Duration;
 
 @Component
 public class PaymentEventConsumer implements DomainEventConsumer {
@@ -17,10 +19,14 @@ public class PaymentEventConsumer implements DomainEventConsumer {
 
     private final BookingService bookingService;
     private final DeadLetterStore deadLetterStore;
+    private final RedisCoordinatorService redisCoordinatorService;
 
-    public PaymentEventConsumer(@Lazy BookingService bookingService, DeadLetterStore deadLetterStore) {
+    public PaymentEventConsumer(@Lazy BookingService bookingService,
+                                DeadLetterStore deadLetterStore,
+                                RedisCoordinatorService redisCoordinatorService) {
         this.bookingService = bookingService;
         this.deadLetterStore = deadLetterStore;
+        this.redisCoordinatorService = redisCoordinatorService;
     }
 
     @Override
@@ -44,6 +50,15 @@ public class PaymentEventConsumer implements DomainEventConsumer {
     }
 
     private void handleWithRetry(PaymentSucceededEvent event) {
+        String eventKey = "payment:event:" + event.bookingId();
+
+        // If event already processed, skip
+        boolean firstTime = redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3));
+
+        if(!firstTime) {
+            return; // duplicate event
+        }
+
         int attempt = 0;
 
         while (attempt < MAX_RETRIES) {
