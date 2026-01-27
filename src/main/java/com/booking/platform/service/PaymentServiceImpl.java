@@ -61,6 +61,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private boolean simulatePayment() {
-        return Math.random() < 0.5;
+        return Math.random() < 0.3;
     }
 }

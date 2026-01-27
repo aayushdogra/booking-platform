@@ -34,4 +34,38 @@ public class HealthController {
         return Map.of("status", "DOWN",
                 "error", "Database not reachable");
     }
+
+    @GetMapping("/health/redis")
+    public Map<String, String> redisHealth() {
+        boolean up = healthService.isRedisUp();
+
+        if (up) {
+            return Map.of(
+                    "status", "UP",
+                    "redis", "Connected"
+            );
+        }
+
+        return Map.of(
+                "status", "DOWN",
+                "error", "Redis not reachable"
+        );
+    }
+
+    @GetMapping("/health/payments")
+    public Map<String, String> paymentsHealth() {
+        boolean up = healthService.isPaymentsUp();
+
+        if (up) {
+            return Map.of(
+                    "status", "UP",
+                    "paymentGateway", "Available"
+            );
+        }
+
+        return Map.of(
+                "status", "DOWN",
+                "error", "Payment gateway unavailable"
+        );
+    }
 }

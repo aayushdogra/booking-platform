@@ -1,5 +1,7 @@
 package com.booking.platform.service;
 
+import com.booking.platform.entity.RefundEntity;
+
 public interface RefundService {
-    void processRefund(Long bookingId);
+    RefundEntity initiateRefund(Long bookingId);
 }

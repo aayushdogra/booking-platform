@@ -212,10 +212,26 @@ public class BookingServiceImpl implements BookingService {
         }
 
         // Idempotent cancellation
-        if (currentStatus == BookingStatus.CANCELLED) {
+        else if (currentStatus == BookingStatus.CANCELLED) {
             return new BookingResponse(
                     BookingStatus.CANCELLED.name(),
                     "Booking already cancelled",
+                    booking.getId()
+            );
+        }
+
+        else if(currentStatus == BookingStatus.REFUNDED) {
+            return new BookingResponse(
+                    BookingStatus.REFUNDED.name(),
+                    "Payment already refunded",
+                    booking.getId()
+            );
+        }
+
+        else if(currentStatus == BookingStatus.REFUND_PENDING) {
+            return new BookingResponse(
+                    BookingStatus.REFUND_PENDING.name(),
+                    "Refund is in progress",
                     booking.getId()
             );
         }
@@ -243,6 +259,8 @@ public class BookingServiceImpl implements BookingService {
 
         // emit refund event if needed
         if(requiresRefund) {
+            booking.changeStatus(BookingStatus.REFUND_PENDING);
+
             eventPublisher.publish(new RefundRequestedEvent(booking.getId(), Instant.now()));
         }
 
@@ -253,6 +271,48 @@ public class BookingServiceImpl implements BookingService {
                         : "Booking cancelled successfully",
                 booking.getId()
         );
+    }
+
+    @Override
+    @Transactional
+    public void completeRefundFromRefundEvent(Long bookingId) {
+
+        BookingEntity booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Booking not found with id: " + bookingId
+                        )
+                );
+
+        BookingStatus currentStatus = booking.getStatus();
+
+        // Idempotency guard
+        if (currentStatus == BookingStatus.REFUNDED) {
+            return; // already completed
+        }
+
+        // Only valid transition allowed
+        if (currentStatus != BookingStatus.REFUND_PENDING) {
+            return; // late or invalid event -> safe no-op
+        }
+
+        booking.changeStatus(BookingStatus.REFUNDED);
+    }
+
+    @Transactional
+    public void handleRefundFailureFromRefundEvent(Long bookingId, String reason) {
+
+        BookingEntity booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Booking not found: " + bookingId)
+                );
+
+        if (booking.getStatus() != BookingStatus.REFUND_PENDING) {
+            return;
+        }
+
+        // Keep it REFUND_PENDING so retry is possible
+        // No state change here
     }
 
     // Payment -> Confirmation

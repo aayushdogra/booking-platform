@@ -34,4 +34,9 @@ public class RedisGuardServiceImpl implements RedisGuardService {
 
         return value == null ? 0 : value;
     }
+
+    @Override
+    public void delete(String key) {
+        redisTemplate.delete(key);
+    }
 }
