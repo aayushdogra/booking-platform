@@ -202,117 +202,68 @@ public class BookingServiceImpl implements BookingService {
 
         BookingStatus currentStatus = booking.getStatus();
 
-        // Expired bookings cancellation is not allowed
-        if (currentStatus == BookingStatus.EXPIRED) {
-            return new BookingResponse(
-                    BookingStatus.EXPIRED.name(),
-                    "Booking already expired and cannot be cancelled",
-                    booking.getId()
-            );
-        }
+        switch (currentStatus) {
+            case EXPIRED -> { // Expired bookings cancellation is not allowed
+                return new BookingResponse(
+                        BookingStatus.EXPIRED.name(),
+                        "Booking already expired and cannot be cancelled",
+                        booking.getId());
+            }
+            case CANCELLED -> { // Idempotent cancellation
+                return new BookingResponse(
+                        BookingStatus.CANCELLED.name(),
+                        "Booking already cancelled",
+                        booking.getId());
+            }
+            case REFUNDED -> { // Refunded bookings cancellation is not allowed
+                return new BookingResponse(
+                        BookingStatus.REFUNDED.name(),
+                        "Booking already refunded and cannot be cancelled",
+                        booking.getId()
+                );
+            }
+            case REFUND_PENDING -> {
+                return new BookingResponse(
+                        BookingStatus.REFUND_PENDING.name(),
+                        "Refund is in progress",
+                        booking.getId());
+            }
+            case CREATED -> {
+                // No payment happened → simple cancel
+                booking.changeStatus(BookingStatus.CANCELLED);
 
-        // Idempotent cancellation
-        else if (currentStatus == BookingStatus.CANCELLED) {
-            return new BookingResponse(
-                    BookingStatus.CANCELLED.name(),
-                    "Booking already cancelled",
-                    booking.getId()
-            );
-        }
-
-        else if(currentStatus == BookingStatus.REFUNDED) {
-            return new BookingResponse(
-                    BookingStatus.REFUNDED.name(),
-                    "Payment already refunded",
-                    booking.getId()
-            );
-        }
-
-        else if(currentStatus == BookingStatus.REFUND_PENDING) {
-            return new BookingResponse(
-                    BookingStatus.REFUND_PENDING.name(),
-                    "Refund is in progress",
-                    booking.getId()
-            );
-        }
-
-        // Refund only applies to CONFIRMED bookings
-        boolean requiresRefund = currentStatus == BookingStatus.CONFIRMED;
-
-        /*
-         * State transition is enforced inside the entity.
-         * Illegal transitions will throw an exception.
-         */
-        booking.changeStatus(BookingStatus.CANCELLED);
-
-        /*
-         * Availability release happens AFTER state transition.
-         * This ensures we never release availability for invalid bookings.
-         */
-        availabilityService.release(
-                booking.getHotelName(),
-                booking.getRoomType(),
-                booking.getCreatedAt()
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalDate()
-        );
-
-        // emit refund event if needed
-        if(requiresRefund) {
-            booking.changeStatus(BookingStatus.REFUND_PENDING);
-
-            eventPublisher.publish(new RefundRequestedEvent(booking.getId(), Instant.now()));
-        }
-
-        return new BookingResponse(
-                BookingStatus.CANCELLED.name(),
-                requiresRefund
-                        ? "Booking cancelled. Refund initiated."
-                        : "Booking cancelled successfully",
-                booking.getId()
-        );
-    }
-
-    @Override
-    @Transactional
-    public void completeRefundFromRefundEvent(Long bookingId) {
-
-        BookingEntity booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Booking not found with id: " + bookingId
-                        )
+                availabilityService.release(
+                        booking.getHotelName(),
+                        booking.getRoomType(),
+                        booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
                 );
 
-        BookingStatus currentStatus = booking.getStatus();
+                return new BookingResponse(
+                        BookingStatus.CANCELLED.name(),
+                        "Booking cancelled successfully",
+                        booking.getId());
+            }
+            case CONFIRMED -> {
+                // Payment happened → go directly to REFUND_PENDING
+                booking.changeStatus(BookingStatus.REFUND_PENDING);
 
-        // Idempotency guard
-        if (currentStatus == BookingStatus.REFUNDED) {
-            return; // already completed
-        }
-
-        // Only valid transition allowed
-        if (currentStatus != BookingStatus.REFUND_PENDING) {
-            return; // late or invalid event -> safe no-op
-        }
-
-        booking.changeStatus(BookingStatus.REFUNDED);
-    }
-
-    @Transactional
-    public void handleRefundFailureFromRefundEvent(Long bookingId, String reason) {
-
-        BookingEntity booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Booking not found: " + bookingId)
+                availabilityService.release(
+                        booking.getHotelName(),
+                        booking.getRoomType(),
+                        booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
                 );
 
-        if (booking.getStatus() != BookingStatus.REFUND_PENDING) {
-            return;
-        }
+                eventPublisher.publish(new RefundRequestedEvent(booking.getId(), Instant.now()));
 
-        // Keep it REFUND_PENDING so retry is possible
-        // No state change here
+                return new BookingResponse(
+                        BookingStatus.REFUND_PENDING.name(),
+                        "Booking cancelled and refund initiated",
+                        booking.getId());
+            }
+            default -> throw new IllegalStateException(
+                    "Unhandled booking status: " + currentStatus
+            );
+        }
     }
 
     // Payment -> Confirmation
@@ -341,26 +292,6 @@ public class BookingServiceImpl implements BookingService {
                 "Payment requested asynchronously",
                 booking.getId()
         );
-    }
-
-    @Override
-    @Transactional
-    public void confirmBookingFromPaymentEvent(Long id) {
-        BookingEntity booking = bookingRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Booking not found with id: " + id));
-
-        // Enforce expiry first
-        expireBookingIfNeeded(booking);
-
-        BookingStatus status = booking.getStatus();
-
-        // Idempotency guard: safe against duplicate / late events
-        if (status != BookingStatus.CREATED) {
-            return;
-        }
-
-        booking.changeStatus(BookingStatus.CONFIRMED);
     }
 
     // Expiry

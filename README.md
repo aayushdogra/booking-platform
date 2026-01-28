@@ -2,11 +2,11 @@
 
 A backend architecture exploration inspired by real-world booking systems, built with **Java 21 + Spring Boot**.
 
-This project intentionally evolves from a simple synchronous flow into a controlled, event-driven system.
-It prioritizes **correctness, lifecycle integrity, and architectural clarity** over feature breadth.
+This repository models the controlled evolution of a booking system from synchronous correctness to 
+event-driven coordination — with an emphasis on lifecycle integrity, concurrency safety, and 
+deterministic domain behaviour.
 
-This is not a production-ready SaaS product.
-It is an intentionally incremental backend design exercise.
+It is intentionally single-process and single-database.
 
 ---
 
@@ -110,6 +110,10 @@ Bookings are stateful and lifecycle-driven.
 CREATED → CONFIRMED
 CREATED → CANCELLED
 CREATED → EXPIRED
+CREATED → PAYMENT_FAILED
+CONFIRMED → REFUND_PENDING
+REFUND_PENDING → REFUNDED
+REFUND_PENDING → REFUND_FAILED
 ```
 
 ### Rules:
@@ -203,30 +207,56 @@ Non-retryable:
 ### Properties
 - Bounded retries (max 3)
 - Linear backoff
-- Classification-based retry decisions
-- DLQ triggered only for processing failures
+- Retry counters stored in Redis
+- DLQ persistence on exhaustion
+- Failure reason stored on aggregate when terminal
 
 Domain services remain deterministic and free of retry logic.
 
 ---
 
-## Dead Letter Queue (Conceptual)
+## Failure Handling Strategy
 
-The DLQ is currently in-memory and design-focused.
+Payment failure:
+- Booking transitions to `PAYMENT_FAILED`
+- Failure reason persisted
+- Availability released
 
-It stores:
-- Original event
+Refund failure:
+- Booking transitions to `REFUND_FAILED`
+- Failure reason persisted
+- No automatic resurrection
+
+Failure states are terminal and protected by state guards.
+
+---
+
+## Dead Letter Handling
+
+Dead-letter entries persist:
+- Original event payload
 - Retry count
-- Failure classification
+- Classification
 - Error message
 - Timestamp
 
-It exists to demonstrate:
+DLQ exists to demonstrate:
 - Failure isolation
-- Retry exhaustion handling
-- Async processing control
+- Controlled retry exhaustion
+- Observability of async errors
 
-Durable persistence is intentionally deferred.
+It is intentionally minimal.
+
+---
+
+## Redis Usage
+
+Redis is used as:
+- Event deduplication layer (`SETNX`)
+- Retry counter store with TTL
+- Lightweight distributed lock primitive (available but optional)
+
+Redis does not replace domain guards, it supplements them.
 
 ---
 

@@ -1,7 +1,7 @@
 package com.booking.platform.service;
 
-import com.booking.platform.entity.RefundEntity;
+import com.booking.platform.domain.RefundStatus;
 
 public interface RefundService {
-    RefundEntity initiateRefund(Long bookingId);
+    RefundStatus initiateRefund(Long bookingId);
 }

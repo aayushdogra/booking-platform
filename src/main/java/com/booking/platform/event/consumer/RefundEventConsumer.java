@@ -4,8 +4,7 @@ import com.booking.platform.event.*;
 import com.booking.platform.event.dlq.DeadLetterEvent;
 import com.booking.platform.event.dlq.DeadLetterStore;
 import com.booking.platform.service.RedisCoordinatorService;
-import com.booking.platform.service.BookingService;
-import org.springframework.context.annotation.Lazy;
+import com.booking.platform.service.port.BookingEventHandler;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -17,14 +16,14 @@ public class RefundEventConsumer implements DomainEventConsumer {
     private static final int MAX_RETRIES = 3;
     private static final long BACKOFF_MS = 200;
 
-    private final BookingService bookingService;
+    private final BookingEventHandler bookingEventHandler;
     private final DeadLetterStore deadLetterStore;
     private final RedisCoordinatorService redisCoordinatorService;
 
-    public RefundEventConsumer(@Lazy BookingService bookingService,
+    public RefundEventConsumer(BookingEventHandler bookingEventHandler,
                                DeadLetterStore deadLetterStore,
                                RedisCoordinatorService redisCoordinatorService) {
-        this.bookingService = bookingService;
+        this.bookingEventHandler = bookingEventHandler;
         this.deadLetterStore = deadLetterStore;
         this.redisCoordinatorService = redisCoordinatorService;
     }
@@ -39,45 +38,66 @@ public class RefundEventConsumer implements DomainEventConsumer {
     public void consume(DomainEvent event) {
 
         if (event instanceof RefundSucceededEvent successEvent) {
-            handleSuccess(successEvent);
+            processSuccessEvent(successEvent);
             return;
         }
 
         if (event instanceof RefundFailedEvent failedEvent) {
-            handleFailureWithRetry(failedEvent);
+            bookingEventHandler.markRefundFailed(failedEvent.bookingId(), failedEvent.reason());
         }
     }
 
-    private void handleSuccess(RefundSucceededEvent event) {
+    private void processSuccessEvent(RefundSucceededEvent event) {
 
-        String eventKey = "refund:success:" + event.bookingId();
-        boolean firstTime = redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3));
+        String eventKey = "event:refund:" + event.getClass().getSimpleName() + ":" + event.bookingId();
 
-        if (!firstTime) {
+        if (!redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3))) {
             return;
         }
 
-        bookingService.completeRefundFromRefundEvent(event.bookingId());
+        String lockKey = "lock:refund:" + event.bookingId();
+
+        if (!redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10))) {
+            return;
+        }
+
+        try {
+            handleWithRetry(event);
+        } finally {
+            redisCoordinatorService.releaseLock(lockKey);
+        }
     }
 
-    private void handleFailureWithRetry(RefundFailedEvent event) {
+    private void handleWithRetry(RefundSucceededEvent event) {
 
-        String eventKey = "refund:failed:" + event.bookingId();
-        boolean firstTime = redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3));
+        String retryKey = "retry:refund:" + event.bookingId();
 
-        if (!firstTime) {
-            return;
-        }
+        while(true) {
 
-        int attempt = 0;
+            long attempt = redisCoordinatorService.incrementRetry(retryKey, Duration.ofHours(1));
 
-        while (attempt < MAX_RETRIES) {
+            if (attempt > MAX_RETRIES) {
+                deadLetterStore.save(
+                        new DeadLetterEvent(
+                                event,
+                                (int) attempt,
+                                "RETRY_EXHAUSTED",
+                                "Max retries exceeded",
+                                Instant.now()
+                        )
+                );
+
+                return;
+            }
+
             try {
-                attempt++;
-                bookingService.handleRefundFailureFromRefundEvent(event.bookingId(), event.reason());
+                bookingEventHandler.completeRefundFromRefundEvent(event.bookingId());
+
+                redisCoordinatorService.delete(retryKey);
                 return;
 
             } catch (Exception ex) {
+
                 RetryDecision decision = RetryClassifier.classify(ex);
 
                 // Non-retryable -> immediate DLQ
@@ -86,30 +106,21 @@ public class RefundEventConsumer implements DomainEventConsumer {
                     deadLetterStore.save(
                             new DeadLetterEvent(
                                     event,
-                                    attempt,
+                                    (int) attempt,
                                     "NON_RETRYABLE",
                                     ex.getMessage(),
                                     Instant.now()
                             )
                     );
 
+                    redisCoordinatorService.delete(retryKey);
                     return;
                 }
 
-                backoff(attempt);
+                // Retryable failure
+                backoff((int) attempt);
             }
         }
-
-        // Retry exhausted → for now we just persist failure
-        deadLetterStore.save(
-                new DeadLetterEvent(
-                        event,
-                        MAX_RETRIES,
-                        "REFUND_RETRY_EXHAUSTED",
-                        "Refund failed after max retries",
-                        Instant.now()
-                )
-        );
     }
 
     private void backoff(int attempt) {

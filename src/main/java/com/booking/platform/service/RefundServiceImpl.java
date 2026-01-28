@@ -1,12 +1,12 @@
 package com.booking.platform.service;
 
+import com.booking.platform.domain.RefundStatus;
 import com.booking.platform.entity.RefundEntity;
 import com.booking.platform.event.EventPublisher;
 import com.booking.platform.event.RefundFailedEvent;
 import com.booking.platform.event.RefundSucceededEvent;
 import com.booking.platform.repository.RefundRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -18,21 +18,20 @@ public class RefundServiceImpl implements RefundService {
     private final RefundRepository refundRepository;
     private final EventPublisher eventPublisher;
 
-    public RefundServiceImpl(RefundRepository refundRepository,
-                             @Lazy EventPublisher eventPublisher) {
+    public RefundServiceImpl(RefundRepository refundRepository, EventPublisher eventPublisher) {
         this.refundRepository = refundRepository;
         this.eventPublisher = eventPublisher;
     }
 
     @Override
     @Transactional
-    public RefundEntity initiateRefund(Long bookingId) {
+    public RefundStatus initiateRefund(Long bookingId) {
 
         // Idempotency check
         Optional<RefundEntity> existing = refundRepository.findByBookingId(bookingId);
 
         if (existing.isPresent()) {
-            return existing.get();
+            return existing.get().getStatus();
         }
 
         // Create refund attempt
@@ -45,30 +44,21 @@ public class RefundServiceImpl implements RefundService {
         if (success) {
             refund.markSuccess();
 
-            eventPublisher.publish(
-                    new RefundSucceededEvent(
-                            refund.getBookingId(),
-                            refund.getId(),
-                            Instant.now()
-                    )
-            );
+            eventPublisher.publish(new RefundSucceededEvent(
+                            bookingId, refund.getId(), Instant.now()
+            ));
         } else {
             refund.markFailed();
 
-            eventPublisher.publish(
-                    new RefundFailedEvent(
-                            refund.getBookingId(),
-                            refund.getId(),
-                            Instant.now(),
-                            "REFUND_GATEWAY_FAILED"
-                    )
-            );
+            eventPublisher.publish(new RefundFailedEvent(
+                    bookingId, refund.getId(), Instant.now(), "REFUND_GATEWAY_FAILED"
+            ));
         }
 
-        return refund;
+        return refund.getStatus();
     }
 
     private boolean simulateRefund() {
-        return Math.random() < 0.5;
+        return Math.random() < 0.2;
     }
 }

@@ -46,6 +46,9 @@ public class BookingEntity {
     @Column(nullable = false)
     private Instant holdUntil;
 
+    @Column(columnDefinition = "TEXT")
+    private String failureReason;
+
     protected BookingEntity() {
     }
 
@@ -91,15 +94,18 @@ public class BookingEntity {
             case CREATED ->
                     to == BookingStatus.CONFIRMED
                             || to == BookingStatus.CANCELLED
-                            || to == BookingStatus.EXPIRED;
+                            || to == BookingStatus.EXPIRED
+                            || to == BookingStatus.PAYMENT_FAILED;
 
-            case CONFIRMED -> to == BookingStatus.CANCELLED;
+            case CONFIRMED ->
+                    to == BookingStatus.CANCELLED
+                            || to == BookingStatus.REFUND_PENDING;
 
-            case CANCELLED -> to == BookingStatus.REFUND_PENDING;
+            case REFUND_PENDING ->
+                    to == BookingStatus.REFUNDED
+                            || to == BookingStatus.REFUND_FAILED;
 
-            case REFUND_PENDING  -> to == BookingStatus.REFUNDED;
-
-            case EXPIRED, REFUNDED ->
+            case CANCELLED, EXPIRED, REFUNDED, PAYMENT_FAILED, REFUND_FAILED ->
                     false; // terminal states
         };
     }
@@ -142,5 +148,11 @@ public class BookingEntity {
     }
     public Instant getHoldUntil() {
         return holdUntil;
+    }
+    public String getFailureReason() {
+        return failureReason;
+    }
+    public void setFailureReason(String failureReason) {
+        this.failureReason = failureReason;
     }
 }

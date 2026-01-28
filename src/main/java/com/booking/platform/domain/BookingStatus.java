@@ -4,7 +4,12 @@ public enum BookingStatus {
     CREATED, // Initial hold
     CONFIRMED, // payment successful
     CANCELLED, // user/system cancelled
-    EXPIRED, // timeout/no payment
+
+    PAYMENT_FAILED,
+
     REFUND_PENDING,  // Refund initiated
-    REFUNDED         // Refund completed
+    REFUNDED,       // Refund completed
+    REFUND_FAILED, // Refund failed
+
+    EXPIRED // timeout/no payment
 }

@@ -3,9 +3,8 @@ package com.booking.platform.event.consumer;
 import com.booking.platform.event.*;
 import com.booking.platform.event.dlq.DeadLetterEvent;
 import com.booking.platform.event.dlq.DeadLetterStore;
-import com.booking.platform.service.BookingService;
 import com.booking.platform.service.RedisCoordinatorService;
-import org.springframework.context.annotation.Lazy;
+import com.booking.platform.service.port.BookingEventHandler;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -17,14 +16,14 @@ public class PaymentEventConsumer implements DomainEventConsumer {
     private static final int MAX_RETRIES = 3;
     private static final long BACKOFF_MS = 200;
 
-    private final BookingService bookingService;
+    private final BookingEventHandler bookingEventHandler;
     private final DeadLetterStore deadLetterStore;
     private final RedisCoordinatorService redisCoordinatorService;
 
-    public PaymentEventConsumer(@Lazy BookingService bookingService,
+    public PaymentEventConsumer(BookingEventHandler bookingEventHandler,
                                 DeadLetterStore deadLetterStore,
                                 RedisCoordinatorService redisCoordinatorService) {
-        this.bookingService = bookingService;
+        this.bookingEventHandler = bookingEventHandler;
         this.deadLetterStore = deadLetterStore;
         this.redisCoordinatorService = redisCoordinatorService;
     }
@@ -39,33 +38,62 @@ public class PaymentEventConsumer implements DomainEventConsumer {
     public void consume(DomainEvent event) {
 
         if(event instanceof PaymentSucceededEvent successEvent) {
-            handleWithRetry(successEvent);
+            processSuccessEvent(successEvent);
             return;
         }
 
         if(event instanceof PaymentFailedEvent failedEvent) {
             // Payment failure is a terminal fact -> never retry
+            bookingEventHandler.markPaymentFailed(failedEvent.bookingId(), failedEvent.reason());
+        }
+    }
+
+    private void processSuccessEvent(PaymentSucceededEvent event) {
+
+        String eventKey = "event:payment:" + event.getClass().getSimpleName() + ":" + event.bookingId();
+
+        if (!redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3))) {
+            return; // duplicate event
+        }
+
+        String lockKey = "lock:payment:" + event.bookingId();
+
+        if (!redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10))) {
             return;
+        }
+
+        try {
+            handleWithRetry(event);
+        } finally {
+            redisCoordinatorService.releaseLock(lockKey);
         }
     }
 
     private void handleWithRetry(PaymentSucceededEvent event) {
-        String eventKey = "payment:event:" + event.bookingId();
 
-        // If event already processed, skip
-        boolean firstTime = redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3));
+        String retryKey = "retry:payment:" + event.bookingId();
 
-        if(!firstTime) {
-            return; // duplicate event
-        }
+        while (true) {
+            long attempt = redisCoordinatorService.incrementRetry(retryKey, Duration.ofHours(1));
 
-        int attempt = 0;
+            if (attempt > MAX_RETRIES) {
+                deadLetterStore.save(
+                        new DeadLetterEvent(
+                                event,
+                                (int) attempt,
+                                "RETRY_EXHAUSTED",
+                                "Max retries exceeded",
+                                Instant.now()
+                        )
+                );
 
-        while (attempt < MAX_RETRIES) {
+                return;
+            }
+
             try {
-                attempt++;
+                bookingEventHandler.confirmBookingFromPaymentEvent(event.bookingId());
 
-                bookingService.confirmBookingFromPaymentEvent(event.bookingId());
+                redisCoordinatorService.delete(retryKey);
                 return; // success or safe no-op
 
             } catch (Exception ex) {
@@ -78,31 +106,21 @@ public class PaymentEventConsumer implements DomainEventConsumer {
                     deadLetterStore.save(
                             new DeadLetterEvent(
                                     event,
-                                    attempt,
+                                    (int) attempt,
                                     "NON_RETRYABLE",
                                     ex.getMessage(),
                                     Instant.now()
                             )
                     );
 
+                    redisCoordinatorService.delete(retryKey);
                     return;
                 }
 
                 // Retryable failure
-                backoff(attempt);
+                backoff((int) attempt);
             }
         }
-
-        // Retry exhausted -> DLQ
-        deadLetterStore.save(
-                new DeadLetterEvent(
-                        event,
-                        MAX_RETRIES,
-                        "RETRY_EXHAUSTED",
-                        "Max retries exceeded",
-                        Instant.now()
-                )
-        );
     }
 
     private void backoff(int attempt) {

@@ -16,11 +16,4 @@ public interface BookingService {
     BookingResponse cancelBooking(Long bookingId);
 
     BookingResponse confirmBooking(Long bookingId);
-
-    // Async consumer entry point
-    void confirmBookingFromPaymentEvent(Long bookingId);
-
-    void completeRefundFromRefundEvent(Long bookingId);
-
-    void handleRefundFailureFromRefundEvent(Long bookingId, String reason);
 }
