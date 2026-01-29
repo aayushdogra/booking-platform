@@ -204,10 +204,7 @@ public class BookingServiceImpl implements BookingService {
 
         switch (currentStatus) {
             case EXPIRED -> { // Expired bookings cancellation is not allowed
-                return new BookingResponse(
-                        BookingStatus.EXPIRED.name(),
-                        "Booking already expired and cannot be cancelled",
-                        booking.getId());
+                throw new ConflictException("Booking has expired");
             }
             case CANCELLED -> { // Idempotent cancellation
                 return new BookingResponse(
@@ -216,17 +213,10 @@ public class BookingServiceImpl implements BookingService {
                         booking.getId());
             }
             case REFUNDED -> { // Refunded bookings cancellation is not allowed
-                return new BookingResponse(
-                        BookingStatus.REFUNDED.name(),
-                        "Booking already refunded and cannot be cancelled",
-                        booking.getId()
-                );
+                throw new ConflictException("Booking has cancelled and refunded");
             }
             case REFUND_PENDING -> {
-                return new BookingResponse(
-                        BookingStatus.REFUND_PENDING.name(),
-                        "Refund is in progress",
-                        booking.getId());
+                throw new ConflictException("Booking has cancelled and refund is in progress");
             }
             case CREATED -> {
                 // No payment happened → simple cancel
@@ -282,6 +272,10 @@ public class BookingServiceImpl implements BookingService {
 
         if(booking.getStatus() == BookingStatus.CONFIRMED) {
             return mapToResponse(booking);
+        }
+
+        if(booking.getStatus() != BookingStatus.CREATED) {
+            throw new ConflictException("Booking is canceled");
         }
 
         // PHASE 7: Emit async payment request
