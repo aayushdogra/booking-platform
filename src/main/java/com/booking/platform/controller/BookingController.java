@@ -28,13 +28,13 @@ public class BookingController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<BookingResponse> getById(@PathVariable Long id) {
+    public ResponseEntity<BookingResponse> getBookingById(@PathVariable Long id) {
         BookingResponse response = bookingService.getBookingById(id);
         return ResponseEntity.ok(response);
     }
 
     @GetMapping
-    public ResponseEntity<List<BookingResponse>> getByUser(@RequestParam String userName) {
+    public ResponseEntity<List<BookingResponse>> getBookingsByUser(@RequestParam String userName) {
         List<BookingResponse> response = bookingService.getBookingsByUser(userName);
         return ResponseEntity.ok(response);
     }
@@ -46,7 +46,7 @@ public class BookingController {
     }
 
     @PostMapping("/{id}/confirm")
-    public BookingResponse confirm(@PathVariable Long id) {
+    public BookingResponse confirmBooking(@PathVariable Long id) {
         return bookingService.confirmBooking(id);
     }
 

@@ -1,0 +1,11 @@
+type BookingSummary {
+    id: ID!
+    status: String!
+    userName: String!
+    createdAt: String!
+}
+
+type Query {
+    bookingById(id: ID!): BookingSummary
+    bookingsByUser(userId: ID!): [BookingSummary]
+}

@@ -72,7 +72,7 @@ The system remains intentionally single-process and single-database.
 ## Tech Stack
 
 - Java 21
-- Spring Boot 3.3.2
+- Spring Boot 3.4.13
 - Spring Web
 - Spring Data JPA / Hibernate
 - PostgreSQL

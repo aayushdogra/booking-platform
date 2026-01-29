@@ -1,10 +1,12 @@
 spring:
   profiles:
     active: dev
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/booking_db?options=-c%20TimeZone=Asia/Kolkata
+    url: jdbc:postgresql://localhost:5432/booking_db
     username: postgres
     password: postgres
+
   data:
     redis:
       host: localhost
@@ -15,10 +17,16 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+    open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-    open-in-view: false
+        jdbc:
+          time_zone: UTC
+
+  graphql:
+    graphiql:
+      enabled: true
 
 management:
   endpoints:
