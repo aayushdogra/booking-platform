@@ -43,7 +43,7 @@ public class BookingQueryResolver {
                 booking.getId(),
                 booking.getStatus().name(),
                 booking.getUserName(),
-                booking.getCreatedAt().toString()
+                booking.getCreatedAt()
         );
     }
 }
