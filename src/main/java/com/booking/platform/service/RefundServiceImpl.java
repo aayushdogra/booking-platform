@@ -6,7 +6,9 @@ import com.booking.platform.event.EventPublisher;
 import com.booking.platform.event.RefundFailedEvent;
 import com.booking.platform.event.RefundSucceededEvent;
 import com.booking.platform.repository.RefundRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -18,7 +20,8 @@ public class RefundServiceImpl implements RefundService {
     private final RefundRepository refundRepository;
     private final EventPublisher eventPublisher;
 
-    public RefundServiceImpl(RefundRepository refundRepository, EventPublisher eventPublisher) {
+    public RefundServiceImpl(RefundRepository refundRepository,
+                             @Lazy EventPublisher eventPublisher) {
         this.refundRepository = refundRepository;
         this.eventPublisher = eventPublisher;
     }
@@ -36,7 +39,14 @@ public class RefundServiceImpl implements RefundService {
 
         // Create refund attempt
         RefundEntity refund = new RefundEntity(bookingId);
-        refundRepository.save(refund);
+
+        try {
+            refundRepository.save(refund);
+        }  catch (DataIntegrityViolationException e) {
+            return refundRepository.findByBookingId(bookingId)
+                    .orElseThrow()
+                    .getStatus();
+        }
 
         // Simulate gateway outcome
         boolean success = simulateRefund();
@@ -59,6 +69,6 @@ public class RefundServiceImpl implements RefundService {
     }
 
     private boolean simulateRefund() {
-        return Math.random() < 0.2;
+        return Math.random() < 0.5;
     }
 }

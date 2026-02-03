@@ -76,11 +76,6 @@ public class AvailabilityEntity {
         this.updatedAt = Instant.now();
     }
 
-    // Domain behaviour
-    public boolean hasAvailability() {
-        return availableRooms > 0;
-    }
-
     public void decrement() {
         if (availableRooms <= 0) {
             throw new IllegalStateException("No rooms available");

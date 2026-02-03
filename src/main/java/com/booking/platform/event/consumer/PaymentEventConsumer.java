@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.time.Duration;
+import java.util.Optional;
 
 @Component
 public class PaymentEventConsumer implements DomainEventConsumer {
@@ -30,53 +31,65 @@ public class PaymentEventConsumer implements DomainEventConsumer {
 
     @Override
     public boolean supports(DomainEvent event) {
-        return event instanceof PaymentSucceededEvent
-                || event instanceof PaymentFailedEvent;
+        return event instanceof PaymentResultEvent;
     }
 
     @Override
     public void consume(DomainEvent event) {
 
-        if(event instanceof PaymentSucceededEvent successEvent) {
-            processSuccessEvent(successEvent);
+        if (event instanceof PaymentSucceededEvent successEvent) {
+            processWithRetry(
+                    successEvent,
+                    "payment:success",
+                    () -> bookingEventHandler
+                            .confirmBookingFromPaymentEvent(successEvent.bookingId())
+            );
             return;
         }
 
-        if(event instanceof PaymentFailedEvent failedEvent) {
-            // Payment failure is a terminal fact -> never retry
-            bookingEventHandler.markPaymentFailed(failedEvent.bookingId(), failedEvent.reason());
+        if (event instanceof PaymentFailedEvent failedEvent) {
+            processWithRetry(
+                    failedEvent,
+                    "payment:failed",
+                    () -> bookingEventHandler
+                            .markPaymentFailed(failedEvent.bookingId(), failedEvent.reason())
+            );
         }
     }
 
-    private void processSuccessEvent(PaymentSucceededEvent event) {
+    // Unified Processing Logic
+    private void processWithRetry(PaymentResultEvent event, String typePrefix, Runnable handler) {
 
-        String eventKey = "event:payment:" + event.getClass().getSimpleName() + ":" + event.bookingId();
+        String eventKey = "event:" + typePrefix + ":" + event.bookingId();
 
+        // Idempotency guard
         if (!redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3))) {
-            return; // duplicate event
+            return;
         }
 
-        String lockKey = "lock:payment:" + event.bookingId();
+        String lockKey = "lock:" + typePrefix + ":" + event.bookingId();
 
-        if (!redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10))) {
+        Optional<String> lockToken = redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10));
+        if (lockToken.isEmpty()) {
             return;
         }
 
         try {
-            handleWithRetry(event);
+            handleWithRetry(event, typePrefix, handler);
         } finally {
-            redisCoordinatorService.releaseLock(lockKey);
+            redisCoordinatorService.releaseLock(lockKey, lockToken.get());
         }
     }
 
-    private void handleWithRetry(PaymentSucceededEvent event) {
+    private void handleWithRetry(PaymentResultEvent event, String  typePrefix, Runnable handler) {
 
-        String retryKey = "retry:payment:" + event.bookingId();
+        String retryKey = "retry:" + typePrefix + ":" + event.bookingId();
 
         while (true) {
             long attempt = redisCoordinatorService.incrementRetry(retryKey, Duration.ofHours(1));
 
             if (attempt > MAX_RETRIES) {
+
                 deadLetterStore.save(
                         new DeadLetterEvent(
                                 event,
@@ -87,12 +100,12 @@ public class PaymentEventConsumer implements DomainEventConsumer {
                         )
                 );
 
+                redisCoordinatorService.delete(retryKey);
                 return;
             }
 
             try {
-                bookingEventHandler.confirmBookingFromPaymentEvent(event.bookingId());
-
+                handler.run();
                 redisCoordinatorService.delete(retryKey);
                 return; // success or safe no-op
 

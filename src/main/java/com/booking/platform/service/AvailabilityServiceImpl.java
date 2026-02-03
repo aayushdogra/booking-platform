@@ -4,6 +4,7 @@ import com.booking.platform.domain.RoomType;
 import com.booking.platform.entity.AvailabilityEntity;
 import com.booking.platform.repository.AvailabilityRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 
@@ -17,6 +18,7 @@ public class AvailabilityServiceImpl implements AvailabilityService{
     }
 
     @Override
+    @Transactional
     public void reserve(String hotelName, RoomType roomType, LocalDate date) {
 
         /*
@@ -56,14 +58,13 @@ public class AvailabilityServiceImpl implements AvailabilityService{
                 .findByHotelNameAndRoomTypeAndDate(hotelName, roomType, date)
                 .orElseThrow(() -> new IllegalArgumentException("No availability configured for given date"));
 
-        if(!availability.hasAvailability())
-            throw new IllegalStateException("No rooms available for given date");
-
         availability.decrement();
+
         availabilityRepository.save(availability);
     }
 
     @Override
+    @Transactional
     public void release(String hotelName, RoomType roomType, LocalDate date) {
 
         /*
@@ -83,6 +84,7 @@ public class AvailabilityServiceImpl implements AvailabilityService{
                 .orElseThrow(() -> new IllegalArgumentException("No availability configured for given date"));
 
         availability.increment();
+
         availabilityRepository.save(availability);
     }
 }

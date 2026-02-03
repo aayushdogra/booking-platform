@@ -11,7 +11,7 @@ import java.time.Duration;
 @Table(name = "bookings")
 public class BookingEntity {
 
-    private static final Duration HOLD_DURATION = Duration.ofMinutes(25);
+    private static final Duration HOLD_DURATION = Duration.ofMinutes(15);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -75,8 +75,22 @@ public class BookingEntity {
         this.updatedAt = Instant.now();
     }
 
-    // Lifecycle transition
-    public void changeStatus(BookingStatus newStatus) {
+    // EXPIRY
+    public boolean expireIfNeeded(Instant now) {
+        if(isExpired(now)) {
+            changeStatus(BookingStatus.EXPIRED);
+            return true;
+        }
+
+        return false;
+    }
+
+    public boolean isExpired(Instant now) {
+        return status == BookingStatus.CREATED && holdUntil.isBefore(now);
+    }
+
+    // STATE MACHINE: Lifecycle transition
+    private void changeStatus(BookingStatus newStatus) {
         if(!isValidTransition(this.status, newStatus)) {
             throw new IllegalStateException("Invalid booking state transition: " + this.status +
                     " -> " + newStatus);
@@ -98,8 +112,7 @@ public class BookingEntity {
                             || to == BookingStatus.PAYMENT_FAILED;
 
             case CONFIRMED ->
-                    to == BookingStatus.CANCELLED
-                            || to == BookingStatus.REFUND_PENDING;
+                    to == BookingStatus.REFUND_PENDING;
 
             case REFUND_PENDING ->
                     to == BookingStatus.REFUNDED
@@ -110,14 +123,86 @@ public class BookingEntity {
         };
     }
 
-    public boolean isExpired(Instant now) {
-        return status == BookingStatus.CREATED && holdUntil.isBefore(now);
+    // PAYMENT REQUEST
+    public void requestPayment(Instant now) {
+        expireIfNeeded(now);
+
+        if (status == BookingStatus.EXPIRED) {
+            throw new IllegalStateException("Booking has expired");
+        }
+
+        if (status == BookingStatus.CONFIRMED) {
+            return; // idempotent
+        }
+
+        if (status != BookingStatus.CREATED) {
+            throw new IllegalStateException("Invalid state for payment request: " + status);
+        }
     }
 
-    public void expireIfNeeded(Instant now) {
-        if(isExpired(now)) {
-            changeStatus(BookingStatus.EXPIRED);
+    // CANCEL
+    public boolean cancel(Instant now) {
+
+        expireIfNeeded(now);
+
+        return switch (status) {
+
+            case CREATED -> {
+                changeStatus(BookingStatus.CANCELLED);
+                yield false; // no refund needed
+            }
+
+            case CONFIRMED -> {
+                changeStatus(BookingStatus.REFUND_PENDING);
+                yield true; // refund required
+            }
+
+            case CANCELLED -> false; // idempotent
+
+            case EXPIRED ->
+                    throw new IllegalStateException("Booking has expired");
+
+            case REFUNDED ->
+                    throw new IllegalStateException("Booking already refunded");
+
+            case REFUND_PENDING ->
+                    throw new IllegalStateException("Refund already in progress");
+
+            default ->
+                    throw new IllegalStateException("Invalid state for cancellation: " + status);
+        };
+    }
+
+    // PAYMENT RESULT
+    public void markPaymentSucceeded(Instant now) {
+        expireIfNeeded(now);
+
+        if(status == BookingStatus.EXPIRED) {
+            throw new IllegalStateException("Cannot confirm expired booking");
         }
+
+        if(status == BookingStatus.CONFIRMED) return;
+        changeStatus(BookingStatus.CONFIRMED);
+    }
+
+    public void markPaymentFailed(String reason) {
+        if(status == BookingStatus.PAYMENT_FAILED) return;
+
+        this.failureReason = reason;
+        changeStatus(BookingStatus.PAYMENT_FAILED);
+    }
+
+    // REFUND RESULT
+    public void markRefundSucceeded() {
+        if(status == BookingStatus.REFUNDED) return;
+        changeStatus(BookingStatus.REFUNDED);
+    }
+
+    public void markRefundFailed(String reason) {
+        if(status == BookingStatus.REFUND_FAILED) return;
+
+        this.failureReason = reason;
+        changeStatus(BookingStatus.REFUND_FAILED);
     }
 
     // getters
@@ -151,8 +236,5 @@ public class BookingEntity {
     }
     public String getFailureReason() {
         return failureReason;
-    }
-    public void setFailureReason(String failureReason) {
-        this.failureReason = failureReason;
     }
 }

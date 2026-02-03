@@ -6,7 +6,9 @@ import com.booking.platform.event.EventPublisher;
 import com.booking.platform.event.PaymentFailedEvent;
 import com.booking.platform.event.PaymentSucceededEvent;
 import com.booking.platform.repository.PaymentRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
@@ -18,7 +20,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final EventPublisher eventPublisher;
 
-    public PaymentServiceImpl(PaymentRepository paymentRepository, EventPublisher eventPublisher) {
+    public PaymentServiceImpl(PaymentRepository paymentRepository,
+                              @Lazy EventPublisher eventPublisher) {
         this.paymentRepository = paymentRepository;
         this.eventPublisher = eventPublisher;
     }
@@ -36,7 +39,14 @@ public class PaymentServiceImpl implements PaymentService {
 
         // 2. Create new payment attempt
         PaymentEntity payment = new PaymentEntity(bookingId);
-        paymentRepository.save(payment);
+
+        try {
+            paymentRepository.save(payment);
+        } catch (DataIntegrityViolationException e) {
+            return paymentRepository.findByBookingId(bookingId)
+                    .orElseThrow()
+                    .getStatus();
+        }
 
         // 3. Simulate payment outcome
         boolean success = simulatePayment();
@@ -61,6 +71,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private boolean simulatePayment() {
-        return Math.random() < 0.2;
+        return Math.random() < 0.5;
     }
 }

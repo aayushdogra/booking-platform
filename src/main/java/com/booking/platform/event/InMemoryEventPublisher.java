@@ -8,6 +8,7 @@ import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class InMemoryEventPublisher implements EventPublisher {
@@ -25,7 +26,7 @@ public class InMemoryEventPublisher implements EventPublisher {
 
     @Override
     public void publish(DomainEvent event) {
-        LOG.info("EVENT EMITTED: {}", event);
+        LOG.info("EVENT EMITTED: {}", event.getClass().getSimpleName());
 
         for(DomainEventConsumer consumer : consumers) {
 
@@ -55,5 +56,15 @@ public class InMemoryEventPublisher implements EventPublisher {
     public void shutdown() {
         LOG.info("Shutting down async event executor");
         executor.shutdown();
+
+        try {
+            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                LOG.warn("Forcing executor shutdown");
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
     }
 }

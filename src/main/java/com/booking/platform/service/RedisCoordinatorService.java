@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class RedisCoordinatorService {
@@ -28,11 +29,15 @@ public class RedisCoordinatorService {
     public long incrementRetry(String key, Duration ttlIfFirst) {
         Long value = redisTemplate.opsForValue().increment(key);
 
-        if (value != null && value == 1) {
+        if(value == null) {
+            throw new IllegalStateException("Redis increment failed for key: " + key);
+        }
+
+        if (value == 1) {
             redisTemplate.expire(key, ttlIfFirst);
         }
 
-        return value == null ? 0 : value;
+        return value;
     }
 
     public void delete(String key) {
@@ -44,14 +49,24 @@ public class RedisCoordinatorService {
     }
 
     // Lightweight Distributed Lock
-    public boolean acquireLock(String key, Duration ttl) {
-        Boolean success = redisTemplate.opsForValue().setIfAbsent(key, "LOCKED", ttl);
+    public Optional<String> acquireLock(String key, Duration ttl) {
+        String token = UUID.randomUUID().toString();
 
-        return Boolean.TRUE.equals(success);
+        Boolean success = redisTemplate.opsForValue()
+                .setIfAbsent(key, token, ttl);
+
+        return Boolean.TRUE.equals(success)
+                ? Optional.of(token)
+                : Optional.empty();
     }
 
-    public void releaseLock(String key) {
-        redisTemplate.delete(key);
+
+    public void releaseLock(String key, String token) {
+        String current = redisTemplate.opsForValue().get(key);
+
+        if (token.equals(current)) {
+            redisTemplate.delete(key);
+        }
     }
 
     // Utility

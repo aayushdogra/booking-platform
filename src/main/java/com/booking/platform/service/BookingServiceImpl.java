@@ -115,12 +115,7 @@ public class BookingServiceImpl implements BookingService {
 
         if(existing.isPresent()) {
             BookingEntity booking = existing.get();
-
-            return new BookingResponse(
-                    booking.getStatus().name(),
-                    "Duplicate request - returning existing booking",
-                    booking.getId()
-            );
+            return mapToResponse(booking);
         }
 
         // 2. Determine booking date
@@ -130,7 +125,7 @@ public class BookingServiceImpl implements BookingService {
         LocalDate bookingDate = LocalDate.now();
 
         // 3. Reserve availability
-        availabilityService.reserve(request.getHotelName(), request.getRoomType(), bookingDate);
+        reserveAvailability(request, bookingDate);
 
         // 4. Create new booking
         BookingEntity bookingEntity = new BookingEntity(
@@ -144,25 +139,20 @@ public class BookingServiceImpl implements BookingService {
 
         BookingEntity saved = bookingRepository.save(bookingEntity);
 
-        return new BookingResponse(
-                BookingStatus.CREATED.name(),
-                "Booking created successfully",
-                saved.getId()
-        );
+        return mapToResponse(saved);
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public BookingResponse getBookingById(Long id) {
         BookingEntity booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
-
-        expireBookingIfNeeded(booking);
 
         return mapToResponse(booking);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<BookingResponse> getBookingsByUser(String userName) {
         // Returning empty list is preferred over 404 for collection resources
         Sort sort = Sort.by(Sort.Direction.DESC, "createdAt");
@@ -198,62 +188,31 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
         // Expire first if needed
-        expireBookingIfNeeded(booking);
+        boolean expiredNow = booking.expireIfNeeded(Instant.now());
 
-        BookingStatus currentStatus = booking.getStatus();
+        if (expiredNow) {
+            releaseAvailability(booking);
 
-        switch (currentStatus) {
-            case EXPIRED -> { // Expired bookings cancellation is not allowed
-                throw new ConflictException("Booking has expired");
-            }
-            case CANCELLED -> { // Idempotent cancellation
-                return new BookingResponse(
-                        BookingStatus.CANCELLED.name(),
-                        "Booking already cancelled",
-                        booking.getId());
-            }
-            case REFUNDED -> { // Refunded bookings cancellation is not allowed
-                throw new ConflictException("Booking has cancelled and refunded");
-            }
-            case REFUND_PENDING -> {
-                throw new ConflictException("Booking has cancelled and refund is in progress");
-            }
-            case CREATED -> {
-                // No payment happened → simple cancel
-                booking.changeStatus(BookingStatus.CANCELLED);
+            return mapToResponse(booking);
+        }
 
-                availabilityService.release(
-                        booking.getHotelName(),
-                        booking.getRoomType(),
-                        booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-                );
+        BookingStatus before = booking.getStatus();
+        boolean refundRequired = booking.cancel(Instant.now());
 
-                return new BookingResponse(
-                        BookingStatus.CANCELLED.name(),
-                        "Booking cancelled successfully",
-                        booking.getId());
-            }
-            case CONFIRMED -> {
-                // Payment happened → go directly to REFUND_PENDING
-                booking.changeStatus(BookingStatus.REFUND_PENDING);
+        if(before == BookingStatus.CREATED ||
+                before == BookingStatus.CONFIRMED) {
 
-                availabilityService.release(
-                        booking.getHotelName(),
-                        booking.getRoomType(),
-                        booking.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-                );
+            releaseAvailability(booking);
+        }
 
-                eventPublisher.publish(new RefundRequestedEvent(booking.getId(), Instant.now()));
-
-                return new BookingResponse(
-                        BookingStatus.REFUND_PENDING.name(),
-                        "Booking cancelled and refund initiated",
-                        booking.getId());
-            }
-            default -> throw new IllegalStateException(
-                    "Unhandled booking status: " + currentStatus
+        // Publish refund request if needed
+        if (refundRequired) {
+            eventPublisher.publish(
+                    new RefundRequestedEvent(booking.getId(), Instant.now())
             );
         }
+
+        return mapToResponse(booking);
     }
 
     // Payment -> Confirmation
@@ -263,41 +222,26 @@ public class BookingServiceImpl implements BookingService {
         BookingEntity booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
-        // 1. Enforce expiry first
-        expireBookingIfNeeded(booking);
+        // Enforce expiry first
+        boolean expiredNow = booking.expireIfNeeded(Instant.now());
 
-        if(booking.getStatus() == BookingStatus.EXPIRED) {
+        if (expiredNow) {
+            releaseAvailability(booking);
             throw new ConflictException("Booking has expired");
         }
 
-        if(booking.getStatus() == BookingStatus.CONFIRMED) {
-            return mapToResponse(booking);
-        }
+        booking.requestPayment(Instant.now());
 
-        if(booking.getStatus() != BookingStatus.CREATED) {
-            throw new ConflictException("Booking is canceled");
-        }
+        eventPublisher.publish(new PaymentRequestedEvent(booking.getId(), Instant.now()));
 
-        // PHASE 7: Emit async payment request
-        eventPublisher.publish(new PaymentRequestedEvent(id, Instant.now()));
-
-        return new BookingResponse(
-                BookingStatus.CREATED.name(),
-                "Payment requested asynchronously",
-                booking.getId()
-        );
+        return mapToResponse(booking);
     }
 
-    // Expiry
-    @Transactional
-    protected void expireBookingIfNeeded(BookingEntity booking) {
+    private void reserveAvailability(CreateBookingRequest request, LocalDate bookingDate) {
+        availabilityService.reserve(request.getHotelName(), request.getRoomType(), bookingDate);
+    }
 
-        if(!booking.isExpired(Instant.now())) {
-            return;
-        }
-
-        booking.expireIfNeeded(Instant.now());
-
+    private void releaseAvailability(BookingEntity booking) {
         availabilityService.release(
                 booking.getHotelName(),
                 booking.getRoomType(),

@@ -2,13 +2,13 @@ package com.booking.platform.event.dlq;
 
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
 public class InMemoryDeadLetterStore implements DeadLetterStore {
 
-    private final List<DeadLetterEvent> store = new ArrayList<>();
+    private final List<DeadLetterEvent> store = new CopyOnWriteArrayList<>();
 
     @Override
     public void save(DeadLetterEvent event) {
@@ -17,6 +17,6 @@ public class InMemoryDeadLetterStore implements DeadLetterStore {
     }
 
     public List<DeadLetterEvent> getStore() {
-        return store;
+        return List.copyOf(store);
     }
 }

@@ -7,11 +7,21 @@ public class RetryClassifier {
 
     public static RetryDecision classify(Exception ex) {
 
-        if(ex instanceof ObjectOptimisticLockingFailureException ||
-            ex instanceof  TransientDataAccessResourceException) {
+        Throwable root = rootCause(ex);
+
+        if(root instanceof ObjectOptimisticLockingFailureException ||
+            root instanceof  TransientDataAccessResourceException) {
             return RetryDecision.RETRYABLE;
         }
 
         return RetryDecision.NON_RETRYABLE;
+    }
+
+    private static Throwable rootCause(Throwable ex) {
+        Throwable cause = ex;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 }

@@ -28,10 +28,11 @@ public class PaymentEntity {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    @PrePersist
-    protected void onCreate() {
-        this.createdAt = Instant.now();
-    }
+    @Column(nullable = false)
+    private Instant updatedAt;
+
+    @Version
+    private Long version;
 
     protected PaymentEntity() {}
 
@@ -40,11 +41,34 @@ public class PaymentEntity {
         this.status = PaymentStatus.INITIATED;
     }
 
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        this.updatedAt = Instant.now();
+    }
+
     public void markSuccess() {
+        if (status == PaymentStatus.SUCCESS) return;
+
+        if (status != PaymentStatus.INITIATED) {
+            throw new IllegalStateException("Invalid payment transition: " + status + " -> SUCCESS");
+        }
+
         this.status = PaymentStatus.SUCCESS;
     }
 
     public void markFailed() {
+        if (status == PaymentStatus.FAILED) return;
+
+        if (status != PaymentStatus.INITIATED) {
+            throw new IllegalStateException("Invalid payment transition: " + status + " -> FAILED");
+        }
+
         this.status = PaymentStatus.FAILED;
     }
 
@@ -63,5 +87,9 @@ public class PaymentEntity {
 
     public Instant getCreatedAt() {
         return this.createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 }

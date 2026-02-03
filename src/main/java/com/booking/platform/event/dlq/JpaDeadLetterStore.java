@@ -2,8 +2,8 @@ package com.booking.platform.event.dlq;
 
 import com.booking.platform.entity.DeadLetterEntity;
 import com.booking.platform.event.DomainEvent;
-import com.booking.platform.event.PaymentSucceededEvent;
-import com.booking.platform.event.RefundSucceededEvent;
+import com.booking.platform.event.PaymentResultEvent;
+import com.booking.platform.event.RefundResultEvent;
 import com.booking.platform.repository.DeadLetterRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,13 +39,19 @@ public class JpaDeadLetterStore implements DeadLetterStore {
             repository.save(entity);
 
         } catch (Exception ex) {
-            System.err.println("CRITICAL: Failed to persist DLQ event " + ex.getMessage());
+            throw new IllegalStateException(
+                    "CRITICAL: Failed to persist DLQ event", ex);
         }
     }
 
     private Long extractAggregateId(DomainEvent event) {
-        if (event instanceof PaymentSucceededEvent e) return e.bookingId();
-        if (event instanceof RefundSucceededEvent e) return e.bookingId();
+        if (event instanceof PaymentResultEvent e) {
+            return e.bookingId();
+        }
+
+        if (event instanceof RefundResultEvent e) {
+            return e.bookingId();
+        }
 
         return null;
     }

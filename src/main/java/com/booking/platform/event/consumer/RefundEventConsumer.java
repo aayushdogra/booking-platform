@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 
 @Component
 public class RefundEventConsumer implements DomainEventConsumer {
@@ -38,45 +39,59 @@ public class RefundEventConsumer implements DomainEventConsumer {
     public void consume(DomainEvent event) {
 
         if (event instanceof RefundSucceededEvent successEvent) {
-            processSuccessEvent(successEvent);
+            processWithRetry(
+                    successEvent,
+                    "refund:success",
+                    () -> bookingEventHandler
+                            .completeRefundFromRefundEvent(successEvent.bookingId())
+            );
             return;
         }
 
         if (event instanceof RefundFailedEvent failedEvent) {
-            bookingEventHandler.markRefundFailed(failedEvent.bookingId(), failedEvent.reason());
+            processWithRetry(
+                    failedEvent,
+                    "refund:failed",
+                    () -> bookingEventHandler
+                            .markRefundFailed(failedEvent.bookingId(), failedEvent.reason())
+            );
         }
     }
 
-    private void processSuccessEvent(RefundSucceededEvent event) {
+    private void processWithRetry(RefundResultEvent event,
+                                  String prefix,
+                                  Runnable handler) {
 
-        String eventKey = "event:refund:" + event.getClass().getSimpleName() + ":" + event.bookingId();
+        String eventKey = "event:" + prefix + ":" + event.bookingId();
 
         if (!redisCoordinatorService.markEventIfAbsent(eventKey, Duration.ofHours(3))) {
             return;
         }
 
-        String lockKey = "lock:refund:" + event.bookingId();
+        String lockKey = "lock:" + prefix + ":" + event.bookingId();
 
-        if (!redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10))) {
+        Optional<String> lockToken = redisCoordinatorService.acquireLock(lockKey, Duration.ofSeconds(10));
+        if (lockToken.isEmpty()) {
             return;
         }
 
         try {
-            handleWithRetry(event);
+            handleWithRetry(event, prefix, handler);
         } finally {
-            redisCoordinatorService.releaseLock(lockKey);
+            redisCoordinatorService.releaseLock(lockKey,  lockToken.get());
         }
     }
 
-    private void handleWithRetry(RefundSucceededEvent event) {
+    private void handleWithRetry(RefundResultEvent event, String prefix, Runnable handler) {
 
-        String retryKey = "retry:refund:" + event.bookingId();
+        String retryKey = "retry:" + prefix + ":" + event.bookingId();
 
         while(true) {
 
             long attempt = redisCoordinatorService.incrementRetry(retryKey, Duration.ofHours(1));
 
             if (attempt > MAX_RETRIES) {
+
                 deadLetterStore.save(
                         new DeadLetterEvent(
                                 event,
@@ -87,12 +102,12 @@ public class RefundEventConsumer implements DomainEventConsumer {
                         )
                 );
 
+                redisCoordinatorService.delete(retryKey);
                 return;
             }
 
             try {
-                bookingEventHandler.completeRefundFromRefundEvent(event.bookingId());
-
+                handler.run();
                 redisCoordinatorService.delete(retryKey);
                 return;
 
