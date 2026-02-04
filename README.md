@@ -2,273 +2,228 @@
 
 A backend architecture exploration inspired by real-world booking systems, built with **Java 21 + Spring Boot**.
 
-This repository models the controlled evolution of a booking system from synchronous correctness to 
-event-driven coordination — with an emphasis on lifecycle integrity, concurrency safety, and 
-deterministic domain behaviour.
+This project demonstrates how a system evolves from synchronous correctness to controlled event-driven 
+coordination — with strong emphasis on lifecycle integrity, concurrency safety, and deterministic domain 
+behaviour.
 
-It is intentionally single-process and single-database.
+It is intentionally single-process and single-database to focus on architectural clarity over infrastructure complexity.
 
 ---
 
-## Project Intent
+## Purpose
 
-This repository demonstrates backend evolution patterns:
-- From synchronous correctness
-- To concurrency safety
-- To event-driven coordination
-- To bounded retries and failure isolation
+This repository is designed to showcase practical backend engineering principles:
+- Aggregate-driven domain modeling
+- Explicit lifecycle management
+- Inventory correctness under concurrency
+- Event-driven orchestration within clear boundaries
+- Retry classification and failure isolation
+- Deterministic state transitions
+- Clean read/write separation
 
 The goal is to explore how systems grow in complexity responsibly, not to simulate a full booking product.
 
-This project focuses on:
-- Domain-driven lifecycle modeling
-- Deterministic state transitions
-- Inventory correctness under contention
-- Explicit async boundary design
-- Failure classification and retry isolation
+The intent is not to simulate a production-scale booking product, but to demonstrate how complex 
+backend systems are structured responsibly.
 
 ---
 
 ## High-Level Architecture
+This project follows a layered architecture with explicit responsibility boundaries:
 
 ```txt 
-Controller  →  Service (Orchestration) →  Repository  →  Database
-                            ↓            
-                       Domain Rules
-                            ↓
-                    In-Process Consumers
+Controller → Application Service → Domain Aggregate → Repository → Database  
+                                             ↓  
+                                      Event Boundary (Async)
 ```
 
-## Architectural Intent
+### Design Principles
 
-- Controllers are HTTP adapters only
+- Controllers act strictly as HTTP adapters
 - Services orchestrate workflows and transactions
-- Domain entities enforce lifecycle invariants
+- Domain aggregates enforce lifecycle invariants
 - Repositories are persistence-only
-- No cross-domain mutation
 - State transitions are explicit and validated
-- Events represent facts, not commands
-- Idempotency is primarily enforced via domain state
+- Events represent domain facts
+- Idempotency is enforced primarily via domain state
+- Retry logic is isolated from domain logic
+
+The system emphasises correctness before scalability.
 
 ---
 
 ## System Evolution Approach
 
-The architecture evolved in phases:
-- Baseline synchronous flow
-- Optimistic locking for availability safety
-- Time-bound booking holds
-- Idempotent payment modeling
-- Introduction of domain events
-- Async boundary within a single JVM
-- Consumer-level retry and DLQ design
+The architecture was evolved incrementally:
+
+1. Baseline synchronous flow
+2. Inventory correctness with optimistic locking
+3. Time-bound booking lifecycle (expiry)
+4. Explicit aggregate state machine
+5. Async event boundary introduction
+6. Retry classification and bounded retries
+7. Dead-letter persistence
+8. Read/write separation (CQRS-lite)
 
 Each phase introduces one complexity dimension at a time.
 
-The system remains intentionally single-process and single-database.
+---
+
+## Core Domain Concepts
+
+### Booking Lifecycle
+
+The booking aggregate enforces explicit lifecycle transitions such as:
+
+- `Created → Confirmed`
+- `Created → Cancelled`
+- `Created → Expired`
+- `Confirmed → Refund Pending`
+- `Refund Pending → Refunded`
+
+Lifecycle invariants are enforced inside the aggregate to ensure:
+
+- No illegal transitions
+- Terminal state protection
+- Idempotent operations
+- Deterministic behavior under retries
+
+This prevents business rules from leaking across services.
+
+---
+
+### Availability Model
+
+Inventory is modelled explicitly by: `(hotel, roomType, date)`
+
+Characteristics:
+
+- Quantity-based availability
+- Optimistic locking for concurrency safety
+- Symmetric reserve and release operations
+- No derived inventory logic
+- No negative inventory states
+
+The system ensures correctness under concurrent booking attempts.
+
+---
+
+## Async Coordination
+
+Payments and refunds cross an explicit async boundary within the JVM.
+
+Design characteristics:
+
+- Executor-based async dispatch
+- Separate transaction per consumer execution
+- Deterministic domain updates
+- Retry classification (retryable vs non-retryable)
+- Bounded retries with backoff
+- Dead-letter persistence for exhaustion
+
+This simulates distributed behaviour while maintaining architectural clarity.
+
+---
+
+## Idempotency Strategy
+
+Idempotency is enforced at multiple levels:
+
+- Unique constraints for booking/payment/refund creation
+- Aggregate-level state guards
+- Event-level deduplication
+- Retry boundary isolation
+
+The aggregate remains the ultimate consistency guard.
+
+---
+
+## Failure Isolation
+
+Failure states are modelled explicitly and persisted.
+
+The system demonstrates:
+
+- Retry classification
+- Controlled retry exhaustion
+- Dead-letter persistence
+- Failure reason tracking
+- Deterministic aggregate behavior under repeated events
+
+Async consumers remain predictable and side effect safe.
+
+---
+
+## Read / Write Separation
+
+The system exposes:
+
+- REST endpoints for write operations
+- GraphQL as a read-only aggregation layer
+
+This establishes a CQRS-lite separation where:
+
+`REST = Command Layer`
+`GraphQL = Query Layer`
+
+The read layer has no side effects and no async behaviour.
 
 ---
 
 ## Tech Stack
 
 - Java 21
-- Spring Boot 3.4.13
+- Spring Boot 3.x
 - Spring Web
-- Spring Data JPA / Hibernate
+- Spring Data JPA (Hibernate)
 - PostgreSQL
-- Jakarta Validation
+- Redis (idempotency & retry coordination)
+- Spring GraphQL
 - Maven
 
 ---
 
-## Module Structure
+## Engineering Focus
 
-```txt
-com.booking.platform
-├── controller        // HTTP layer
-├── service           // Orchestration & transactions
-├── domain            // Enums and domain concepts
-├── entity            // Persistence models with invariants
-├── repository        // Data access
-├── event             // Domain events & publisher
-│   ├── consumer      // Async boundary (in-process)
-│   └── dlq           // Dead-letter abstractions
-├── model             // API DTOs
-├── exception         // Error handling
-└── config            // Dev-only setup
-```
+This project demonstrates:
+
+- Aggregate design and invariant enforcement
+- Concurrency-aware modeling
+- Event-driven coordination patterns
+- Retry boundary design
+- Failure isolation strategies
+- Defensive idempotency patterns
+- Clean service boundary refactoring
+- Architecture-first scaling mindset
+
+It reflects hands-on backend system design thinking rather than framework usage alone.
 
 ---
 
-## Booking Lifecycle
-
-Bookings are stateful and lifecycle-driven.
-
-### Supported states:
-
-```text
-CREATED → CONFIRMED
-CREATED → CANCELLED
-CREATED → EXPIRED
-CREATED → PAYMENT_FAILED
-CONFIRMED → REFUND_PENDING
-REFUND_PENDING → REFUNDED
-REFUND_PENDING → REFUND_FAILED
-```
-
-### Rules:
-
-- Transitions are explicit
-- Terminal states are immutable
-- Expiry is system-driven
-- Cancellation is user-driven and idempotent
-- Confirmation occurs only via payment success event
-
-Lifecycle enforcement lives inside the aggregate.
-
----
-
-## Availability Model
-
-Availability is modeled explicitly as:
-
-`(hotel, roomType, date)`
-
-
-### Characteristics:
-
-- Quantity-based inventory
-- Optimistic locking via `@Version`
-- No derived availability
-- No negative inventory
-- Reservation and release are symmetric operations
-
----
-
-## Idempotency Strategy
-
-Idempotency is enforced at multiple layers:
-
-- Booking creation via `idempotencyKey` (DB constraint + lookup)
-- Cancellation via booking state checks
-- Payments via one-payment-per-booking invariant
-- Event consumption via booking state
-
-Domain state is the **primary idempotency guard**, not infrastructure.
-
----
-
-## Payments & Async Boundary
-
-Payments cross an explicit async boundary inside the JVM.
-
-```text
-POST /confirm
-    ↓
-PaymentRequestedEvent
-    ↓
-PaymentRequestConsumer
-    ↓
-PaymentService
-    ↓
-PaymentSucceeded / PaymentFailed
-    ↓
-PaymentEventConsumer
-    ↓
-Booking confirmation
-```
-
-### Characteristics:
-
-- Executor-based async dispatch
-- Separate transaction per consumer execution
-- Idempotent event handling
-- Explicit state guards
-- Controlled retry classification
-- In-memory DLQ design (non-durable)
-
-This simulates event-driven behavior without introducing distributed infrastructure.
-
----
-
-## Retry & Failure Semantics
-
-Retries are scoped to event consumers only.
-
-### Retry Rules
-Retryable:
-- Optimistic locking
-- Transient persistence issues
-
-Non-retryable:
-- Invalid lifecycle transitions
-- Domain rule violations
-
-### Properties
-- Bounded retries (max 3)
-- Linear backoff
-- Retry counters stored in Redis
-- DLQ persistence on exhaustion
-- Failure reason stored on aggregate when terminal
-
-Domain services remain deterministic and free of retry logic.
-
----
-
-## Failure Handling Strategy
-
-Payment failure:
-- Booking transitions to `PAYMENT_FAILED`
-- Failure reason persisted
-- Availability released
-
-Refund failure:
-- Booking transitions to `REFUND_FAILED`
-- Failure reason persisted
-- No automatic resurrection
-
-Failure states are terminal and protected by state guards.
-
----
-
-## Dead Letter Handling
-
-Dead-letter entries persist:
-- Original event payload
-- Retry count
-- Classification
-- Error message
-- Timestamp
-
-DLQ exists to demonstrate:
-- Failure isolation
-- Controlled retry exhaustion
-- Observability of async errors
-
-It is intentionally minimal.
-
----
-
-## Redis Usage
-
-Redis is used as:
-- Event deduplication layer (`SETNX`)
-- Retry counter store with TTL
-- Lightweight distributed lock primitive (available but optional)
-
-Redis does not replace domain guards, it supplements them.
-
----
-
-## Development Notes
+## Scope & Intentional Constraints
 
 - Single JVM
-- Single PostgreSQL database
-- Dev profile seeds availability
-- No external broker
+- Single database
+- No external message broker
 - No distributed tracing
 - No horizontal scaling assumptions
 
-This repository reflects an architectural journey, not a finished product.
+The goal is architectural discipline, not infrastructure simulation.
 
 ---
+
+## What This Project Represents
+
+This repository represents a structured backend evolution journey:
+
+From correctness →  
+To concurrency safety →  
+To async orchestration →  
+To failure isolation →  
+To design clarity before scale.
+
+It reflects how production systems should be cleaned and stabilised before introducing horizontal scaling.
+
+---
+
+Built as an architectural learning and engineering discipline project.
