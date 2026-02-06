@@ -99,7 +99,7 @@ public class BookingEntity {
         this.status = newStatus;
     }
 
-    private boolean  isValidTransition(BookingStatus from, BookingStatus to) {
+    private boolean isValidTransition(BookingStatus from, BookingStatus to) {
         if(from == to)
             return true; // idempotent transition
 

@@ -11,6 +11,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
 import java.util.Optional;
 import java.time.Instant;
 
@@ -19,6 +23,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final EventPublisher eventPublisher;
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     public PaymentServiceImpl(PaymentRepository paymentRepository,
                               @Lazy EventPublisher eventPublisher) {
@@ -29,45 +35,63 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public PaymentStatus initiatePayment(Long bookingId) {
-
-        // 1. Idempotency check
-        Optional<PaymentEntity> existing = paymentRepository.findByBookingId(bookingId);
-
-        if(existing.isPresent()) {
-            return existing.get().getStatus();
-        }
-
-        // 2. Create new payment attempt
-        PaymentEntity payment = new PaymentEntity(bookingId);
+        MDC.put("bookingId", String.valueOf(bookingId));
 
         try {
-            paymentRepository.save(payment);
-        } catch (DataIntegrityViolationException e) {
-            return paymentRepository.findByBookingId(bookingId)
-                    .orElseThrow()
-                    .getStatus();
+            log.info("Initiating payment");
+            // 1. Idempotency check
+            Optional<PaymentEntity> existing = paymentRepository.findByBookingId(bookingId);
+
+            if(existing.isPresent()) {
+                log.info("Payment already exists. Returning existing status={}",
+                        existing.get().getStatus());
+                return existing.get().getStatus();
+            }
+
+            // 2. Create new payment attempt
+            PaymentEntity payment = new PaymentEntity(bookingId);
+
+            try {
+                paymentRepository.save(payment);
+                log.info("Created new payment attempt. paymentId={}", payment.getId());
+
+            } catch (DataIntegrityViolationException e) {
+                log.warn("Race detected. Returning existing payment status.");
+
+                return paymentRepository.findByBookingId(bookingId)
+                        .orElseThrow()
+                        .getStatus();
+            }
+
+            // 3. Simulate payment outcome
+            boolean success = simulatePayment();
+            log.info("Payment simulation result={}", success ? "SUCCESS" : "FAILED");
+
+            if(success) {
+                payment.markSuccess();
+
+                log.info("Publishing PaymentSucceededEvent. paymentId={}", payment.getId());
+
+                // 4a. Emit Success event
+                eventPublisher.publish(new PaymentSucceededEvent(
+                        bookingId, payment.getId(), Instant.now()
+                ));
+            } else {
+                payment.markFailed();
+
+                log.warn("Publishing PaymentFailedEvent. paymentId={}", payment.getId());
+
+                //4b. Emit Failed event
+                eventPublisher.publish(new PaymentFailedEvent(
+                        bookingId, payment.getId(), Instant.now(), "PAYMENT_DECLINED"
+                ));
+            }
+
+            return payment.getStatus();
+
+        } finally {
+            MDC.clear();
         }
-
-        // 3. Simulate payment outcome
-        boolean success = simulatePayment();
-
-        if(success) {
-            payment.markSuccess();
-
-            // 4a. Emit Success event
-            eventPublisher.publish(new PaymentSucceededEvent(
-                    bookingId, payment.getId(), Instant.now()
-            ));
-        } else {
-            payment.markFailed();
-
-            //4b. Emit Failed event
-            eventPublisher.publish(new PaymentFailedEvent(
-                    bookingId, payment.getId(), Instant.now(), "PAYMENT_DECLINED"
-            ));
-        }
-
-        return payment.getStatus();
     }
 
     private boolean simulatePayment() {

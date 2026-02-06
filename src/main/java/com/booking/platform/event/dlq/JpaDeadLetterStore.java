@@ -9,10 +9,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class JpaDeadLetterStore implements DeadLetterStore {
 
     private final DeadLetterRepository repository;
     private final ObjectMapper objectMapper;
+
+    private static final Logger log = LoggerFactory.getLogger(JpaDeadLetterStore.class);
 
     public JpaDeadLetterStore(DeadLetterRepository repository,
                               ObjectMapper objectMapper) {
@@ -26,9 +31,19 @@ public class JpaDeadLetterStore implements DeadLetterStore {
         try {
             String payloadJson = objectMapper.writeValueAsString(event.originalEvent());
 
+            Long aggregateId = extractAggregateId(event.originalEvent());
+
+            log.error(
+                    "Persisting event to DLQ. type={}, aggregateId={}, reason={}, retryCount={}",
+                    event.originalEvent().getClass().getSimpleName(),
+                    aggregateId,
+                    event.failureReason(),
+                    event.retryCount()
+            );
+
             DeadLetterEntity entity = new DeadLetterEntity(
                     event.originalEvent().getClass().getSimpleName(),
-                    extractAggregateId(event.originalEvent()),
+                    aggregateId,
                     payloadJson,
                     event.retryCount(),
                     event.failureReason(),
@@ -39,6 +54,7 @@ public class JpaDeadLetterStore implements DeadLetterStore {
             repository.save(entity);
 
         } catch (Exception ex) {
+            log.error("CRITICAL: Failed to persist DLQ event", ex);
             throw new IllegalStateException(
                     "CRITICAL: Failed to persist DLQ event", ex);
         }

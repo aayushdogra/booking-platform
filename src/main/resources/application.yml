@@ -32,4 +32,17 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.booking.platform: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%X{bookingId}] [%X{eventType}] %-5level %logger{36} - %msg%n"
+

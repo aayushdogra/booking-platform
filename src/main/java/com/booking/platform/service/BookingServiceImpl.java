@@ -11,10 +11,15 @@ import com.booking.platform.exception.RetryExhaustedException;
 import com.booking.platform.model.BookingResponse;
 import com.booking.platform.model.CreateBookingRequest;
 import com.booking.platform.repository.BookingRepository;
+import com.booking.platform.service.metrics.BookingMetrics;
 import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.time.LocalDate;
 import java.time.Instant;
@@ -27,16 +32,21 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final AvailabilityService availabilityService;
     private final EventPublisher  eventPublisher;
+    private final BookingMetrics  bookingMetrics;
+
+    private static final Logger log = LoggerFactory.getLogger(BookingServiceImpl.class);
 
     private static final int MAX_RETRIES = 3;
 
     public BookingServiceImpl(
             BookingRepository bookingRepository,
             AvailabilityService availabilityService,
-            EventPublisher eventPublisher) {
+            EventPublisher eventPublisher,
+            BookingMetrics bookingMetrics) {
         this.bookingRepository = bookingRepository;
         this.availabilityService = availabilityService;
         this.eventPublisher = eventPublisher;
+        this.bookingMetrics = bookingMetrics;
     }
 
     @Override
@@ -60,8 +70,14 @@ public class BookingServiceImpl implements BookingService {
         while (true) {
             try {
                 attempt++;
+                log.info("Attempting to create booking. Attempt={}", attempt);
+
                 return createBookingInternal(request);
+
             } catch (ObjectOptimisticLockingFailureException ex) {
+                log.warn("Optimistic locking failure while creating booking. Attempt={}", attempt);
+
+                bookingMetrics.incrementBookingFailed();
 
                 if (attempt >= MAX_RETRIES) {
                     throw new RetryExhaustedException(
@@ -114,6 +130,7 @@ public class BookingServiceImpl implements BookingService {
                 request.getIdempotencyKey());
 
         if(existing.isPresent()) {
+            log.info("Booking already exists. Returning existing booking");
             BookingEntity booking = existing.get();
             return mapToResponse(booking);
         }
@@ -138,6 +155,8 @@ public class BookingServiceImpl implements BookingService {
         );
 
         BookingEntity saved = bookingRepository.save(bookingEntity);
+        log.info("Booking created successfully. bookingId={}", saved.getId());
+        bookingMetrics.incrementBookingCreated();
 
         return mapToResponse(saved);
     }
@@ -167,7 +186,7 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponse cancelBooking(Long id) {
-
+        MDC.put("bookingId", String.valueOf(id));
         /*
          * CONCURRENCY NOTE:
          * -----------------
@@ -184,57 +203,79 @@ public class BookingServiceImpl implements BookingService {
          * - availability is never released for invalid bookings
          */
 
-        BookingEntity booking = bookingRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
+        try {
+            log.info("Cancelling booking");
 
-        // Expire first if needed
-        boolean expiredNow = booking.expireIfNeeded(Instant.now());
+            BookingEntity booking = bookingRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
-        if (expiredNow) {
-            releaseAvailability(booking);
+            // Expire first if needed
+            boolean expiredNow = booking.expireIfNeeded(Instant.now());
+
+            if (expiredNow) {
+                log.warn("Booking expired before cancelling");
+                releaseAvailability(booking);
+
+                return mapToResponse(booking);
+            }
+
+            BookingStatus before = booking.getStatus();
+            boolean refundRequired = booking.cancel(Instant.now());
+
+            if(before == BookingStatus.CREATED ||
+                    before == BookingStatus.CONFIRMED) {
+
+                releaseAvailability(booking);
+            }
+
+            // Publish refund request if needed
+            if (refundRequired) {
+                log.info("Refund required for bookingId={}", booking.getId());
+
+                eventPublisher.publish(
+                        new RefundRequestedEvent(booking.getId(), Instant.now())
+                );
+            }
 
             return mapToResponse(booking);
+
+        } finally {
+            MDC.clear();
         }
-
-        BookingStatus before = booking.getStatus();
-        boolean refundRequired = booking.cancel(Instant.now());
-
-        if(before == BookingStatus.CREATED ||
-                before == BookingStatus.CONFIRMED) {
-
-            releaseAvailability(booking);
-        }
-
-        // Publish refund request if needed
-        if (refundRequired) {
-            eventPublisher.publish(
-                    new RefundRequestedEvent(booking.getId(), Instant.now())
-            );
-        }
-
-        return mapToResponse(booking);
     }
 
     // Payment -> Confirmation
     @Override
     @Transactional
     public BookingResponse confirmBooking(Long id) {
-        BookingEntity booking = bookingRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
 
-        // Enforce expiry first
-        boolean expiredNow = booking.expireIfNeeded(Instant.now());
+        MDC.put("bookingId", String.valueOf(id));
 
-        if (expiredNow) {
-            releaseAvailability(booking);
-            throw new ConflictException("Booking has expired");
+        try {
+            log.info("Confirm booking requested");
+
+            BookingEntity booking = bookingRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
+
+            // Enforce expiry first
+            boolean expiredNow = booking.expireIfNeeded(Instant.now());
+
+            if (expiredNow) {
+                log.warn("Booking expired before payment request");
+                releaseAvailability(booking);
+                //throw new ConflictException("Booking has expired");
+                return mapToResponse(booking);
+            }
+
+            booking.requestPayment(Instant.now());
+
+            log.info("Publishing PaymentRequestedEvent");
+            eventPublisher.publish(new PaymentRequestedEvent(booking.getId(), Instant.now()));
+            return mapToResponse(booking);
+
+        } finally {
+            MDC.clear();
         }
-
-        booking.requestPayment(Instant.now());
-
-        eventPublisher.publish(new PaymentRequestedEvent(booking.getId(), Instant.now()));
-
-        return mapToResponse(booking);
     }
 
     private void reserveAvailability(CreateBookingRequest request, LocalDate bookingDate) {
