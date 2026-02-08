@@ -2,11 +2,13 @@ package com.booking.platform.controller;
 
 import com.booking.platform.service.HealthService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
 @RestController
+@RequestMapping("/api/v1/health")
 public class HealthController {
 
     private final HealthService healthService;
@@ -15,13 +17,13 @@ public class HealthController {
         this.healthService = healthService;
     }
 
-    @GetMapping("/health")
+    @GetMapping("/bookingservice")
     public Map<String, String> appHealth() {
         return Map.of("status", "UP",
                 "message", "Booking Service is Up");
     }
 
-    @GetMapping("/health/db")
+    @GetMapping("/db")
     public Map<String, String> dbHealth() {
         boolean up = healthService.isDatabaseUp();
 
@@ -35,7 +37,7 @@ public class HealthController {
                 "error", "Database not reachable");
     }
 
-    @GetMapping("/health/redis")
+    @GetMapping("/redis")
     public Map<String, String> redisHealth() {
         boolean up = healthService.isRedisUp();
 
@@ -52,7 +54,7 @@ public class HealthController {
         );
     }
 
-    @GetMapping("/health/payments")
+    @GetMapping("/paymentservice")
     public Map<String, String> paymentsHealth() {
         boolean up = healthService.isPaymentsUp();
 
