@@ -23,22 +23,25 @@ public class BookingMetrics {
     private final Counter paymentRetryCounter;
     private final Counter refundRetryCounter;
 
+    private final Counter refundRequestedCounter;
 
     public BookingMetrics(MeterRegistry registry) {
         this.bookingCreatedCounter = registry.counter("booking.created");
         this.bookingFailedCounter = registry.counter("booking.failed");
 
         this.paymentSuccessCounter = registry.counter("payment.success");
-        this.paymentFailureCounter = registry.counter("payment.failure");
+        this.paymentFailureCounter = registry.counter("payment.failed");
 
-        this.refundSuccessCounter = registry.counter("refund.success");
-        this.refundFailureCounter = registry.counter("refund.failure");
+        this.refundSuccessCounter = registry.counter("refund.completed");
+        this.refundFailureCounter = registry.counter("refund.failed");
 
         this.paymentLatencyTimer = registry.timer("payment.latency");
         this.refundLatencyTimer = registry.timer("refund.latency");
 
         this.paymentRetryCounter = registry.counter("payment.retry");
         this.refundRetryCounter = registry.counter("refund.retry");
+
+        this.refundRequestedCounter = registry.counter("refund.requested");
     }
 
     public void incrementBookingCreated() {
@@ -83,5 +86,9 @@ public class BookingMetrics {
 
     public void incrementRefundRetry() {
         refundRetryCounter.increment();
+    }
+
+    public void incrementRefundRequested() {
+        refundRequestedCounter.increment();
     }
 }

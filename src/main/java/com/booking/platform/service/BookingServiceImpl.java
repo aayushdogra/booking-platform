@@ -130,7 +130,7 @@ public class BookingServiceImpl implements BookingService {
                 request.getIdempotencyKey());
 
         if(existing.isPresent()) {
-            log.info("Booking already exists. Returning existing booking");
+            log.info("Booking already exists. Returning existing booking. BookingId={}", existing.get().getId());
             BookingEntity booking = existing.get();
             return mapToResponse(booking);
         }
@@ -155,7 +155,7 @@ public class BookingServiceImpl implements BookingService {
         );
 
         BookingEntity saved = bookingRepository.save(bookingEntity);
-        log.info("Booking created successfully. bookingId={}", saved.getId());
+        log.info("Booking created successfully. BookingId={}", saved.getId());
         bookingMetrics.incrementBookingCreated();
 
         return mapToResponse(saved);
@@ -204,7 +204,7 @@ public class BookingServiceImpl implements BookingService {
          */
 
         try {
-            log.info("Cancelling booking");
+            log.info("Cancelling booking. BookingId={}", id);
 
             BookingEntity booking = bookingRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
@@ -213,7 +213,7 @@ public class BookingServiceImpl implements BookingService {
             boolean expiredNow = booking.expireIfNeeded(Instant.now());
 
             if (expiredNow) {
-                log.warn("Booking expired before cancelling");
+                log.warn("Booking expired before cancelling. BookingId={}", booking.getId());
                 releaseAvailability(booking);
 
                 return mapToResponse(booking);
@@ -231,6 +231,7 @@ public class BookingServiceImpl implements BookingService {
             // Publish refund request if needed
             if (refundRequired) {
                 log.info("Refund required for bookingId={}", booking.getId());
+                bookingMetrics.incrementRefundRequested();
 
                 eventPublisher.publish(
                         new RefundRequestedEvent(booking.getId(), Instant.now())
@@ -252,7 +253,7 @@ public class BookingServiceImpl implements BookingService {
         MDC.put("bookingId", String.valueOf(id));
 
         try {
-            log.info("Confirm booking requested");
+            log.info("Confirm booking requested. BookingId={}", id);
 
             BookingEntity booking = bookingRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id: " + id));
@@ -261,7 +262,7 @@ public class BookingServiceImpl implements BookingService {
             boolean expiredNow = booking.expireIfNeeded(Instant.now());
 
             if (expiredNow) {
-                log.warn("Booking expired before payment request");
+                log.warn("Booking expired before payment request. BookingId={}", booking.getId());
                 releaseAvailability(booking);
                 //throw new ConflictException("Booking has expired");
                 return mapToResponse(booking);
@@ -269,7 +270,7 @@ public class BookingServiceImpl implements BookingService {
 
             booking.requestPayment(Instant.now());
 
-            log.info("Publishing PaymentRequestedEvent");
+            log.info("Publishing PaymentRequestedEvent. BookingId={}", booking.getId());
             eventPublisher.publish(new PaymentRequestedEvent(booking.getId(), Instant.now()));
             return mapToResponse(booking);
 

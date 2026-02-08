@@ -6,10 +6,16 @@ import com.booking.platform.event.RefundRequestedEvent;
 import com.booking.platform.service.RefundService;
 import org.springframework.stereotype.Component;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
 @Component
 public class RefundRequestConsumer implements DomainEventConsumer {
 
     private final RefundService refundService;
+    private static final Logger log = LoggerFactory.getLogger(RefundRequestConsumer.class);
+
 
     public RefundRequestConsumer(RefundService refundService) {
         this.refundService = refundService;
@@ -18,7 +24,17 @@ public class RefundRequestConsumer implements DomainEventConsumer {
     @Override
     public void consume(DomainEvent event) {
         RefundRequestedEvent requested = (RefundRequestedEvent) event;
-        refundService.initiateRefund(requested.bookingId());
+
+        MDC.put("bookingId", String.valueOf(requested.bookingId()));
+        MDC.put("eventType", event.getClass().getSimpleName());
+
+        try {
+            log.info("Processing RefundRequestedEvent");
+            refundService.initiateRefund(requested.bookingId());
+
+        } finally {
+            MDC.clear();
+        }
     }
 
     @Override

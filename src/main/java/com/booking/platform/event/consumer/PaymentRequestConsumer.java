@@ -6,10 +6,15 @@ import com.booking.platform.event.PaymentRequestedEvent;
 import com.booking.platform.service.PaymentService;
 import org.springframework.stereotype.Component;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
 @Component
 public class PaymentRequestConsumer implements DomainEventConsumer {
 
     private final PaymentService paymentService;
+    private static final Logger log = LoggerFactory.getLogger(RefundRequestConsumer.class);
 
     public PaymentRequestConsumer(PaymentService paymentService) {
         this.paymentService = paymentService;
@@ -18,7 +23,17 @@ public class PaymentRequestConsumer implements DomainEventConsumer {
     @Override
     public void consume(DomainEvent event) {
         PaymentRequestedEvent requested = (PaymentRequestedEvent) event;
-        paymentService.initiatePayment(requested.bookingId());
+
+        MDC.put("bookingId", String.valueOf(requested.bookingId()));
+        MDC.put("eventType", event.getClass().getSimpleName());
+
+        try {
+            log.info("Processing PaymentRequestedEvent");
+            paymentService.initiatePayment(requested.bookingId());
+
+        } finally {
+            MDC.clear();
+        }
     }
 
     @Override
